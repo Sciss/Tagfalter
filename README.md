@@ -13,3 +13,7 @@ To contact the author, send an e-mail to `contact at sciss.de`.
 ## building
 
 Builds with sbt against Scala 2.13.
+
+## settings
+
+Assuming Jack runs at 1024 block size and 3 blocks, 48 kHz.
