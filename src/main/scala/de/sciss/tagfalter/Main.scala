@@ -16,11 +16,9 @@ package de.sciss.tagfalter
 import de.sciss.audiofile.{AudioFile, AudioFileSpec}
 import de.sciss.file.userHome
 import de.sciss.lucre.Txn.{peer => peerTx}
-import de.sciss.lucre.synth.{InMemory, Server}
+import de.sciss.lucre.synth.{InMemory, Server, Synth}
 import de.sciss.lucre.{Artifact, ArtifactLocation, DoubleVector, Workspace}
-import de.sciss.osc
 import de.sciss.proc.{AudioCue, AuralSystem, Proc, Runner, SoundProcesses, TimeRef, Universe}
-import de.sciss.synth.proc.graph.PartConv
 import de.sciss.synth.{Client, SynthGraph}
 
 import java.io.File
@@ -54,7 +52,7 @@ object Main {
             SoundProcesses.step[T]("detect-space") { implicit tx =>
               implicit val ws: Workspace[T] = Workspace.Implicits.dummy[T]
               implicit val u: Universe[T] = Universe[T]()
-              detectSpace()
+              detectSpace(s)
             }
           }
 
@@ -64,22 +62,24 @@ object Main {
     }
   }
 
-  def detectSpace()(implicit tx: T, universe: Universe[T]): Unit = {
+  def detectSpace(s: Server)(implicit tx: T, universe: Universe[T]): Unit = {
     // the Pi HAT sound card is the worst piece of crap
     // I have seen in years. It "pauses" the alsa driver, or something like that,
     // when it sees a zero signal. When it "resumes", we get random latencies.
     // To avoid that, we add a permanent noise output.
     println("Start background noise")
-    val pN = Proc[T]()
-    pN.graph() = SynthGraph {
+    val gNoise = SynthGraph {
       import de.sciss.synth.Import._
       import de.sciss.synth.ugen.{DiskIn => _, PartConv => _, _}
-      val sig = WhiteNoise.ar(4.0e-4) // -68 dB
+      val sig = WhiteNoise.ar(4.0e-4) // -68 dB -- minimum volume necessary to unblock audio driver
       sig.poll(0, "NOISE")
       PhysicalOut.ar(0, sig)
     }
-    val rN = Runner(pN)
-    rN.run()
+//    val pN = Proc[T]()
+//    pN.graph() = gNoise
+//    val rN = Runner(pN)
+//    rN.run()
+    /*val synNoise =*/ Synth.play(gNoise, nameHint = Some("noise"))(s)
 
     import universe.scheduler
     val now = scheduler.time
@@ -101,7 +101,7 @@ object Main {
     val cueBwd    = AudioCue.Obj[T](artBwd, specBwd, 0L, 1.0)
 
     val NumRuns   = 4
-    val RunIdx    = Ref(1)
+    val RunIdx    = Ref(0)
 
     p.graph() = SynthGraph {
       import de.sciss.synth.Import._
@@ -121,13 +121,13 @@ object Main {
       val deConv   = PartConv.ar("sweep-rvs", sigIn, fftSize = fftSize)
       val framesTotal = durTotal * SR
       val buf     = Buffer.Empty(framesTotal)
-      val PRE_DELAY  = (2.5 * SR).toInt   // damn Pi chokes if we don't add a pre-delay
+      val PRE_DELAY  = (3 * SR).toInt   // damn Pi chokes if we don't add a pre-delay
       val JACK_BLOCK_SIZE = 1024
       val JACK_NUM_BLOCKS = 3
-      // there is a crazy variance in the latency between scsynth/jackd, up to several thousand sample frames.
-      // no idea how to explain it.
-      val UNKNOWN_DELAY = -1024 //  -512 // 448 // -128 // 0 // 256 // 320
-      val CONV_DELAY    = JACK_BLOCK_SIZE * JACK_NUM_BLOCKS + fftSize + UNKNOWN_DELAY
+      // there is a crazy variance in the latency between scsynth/jackd, up to several hundred sample frames.
+      // no idea how to explain it. This one works in 80-90% of the cases
+      val UNKNOWN_DELAY = -1024 // -1024 //  -512 // 448 // -128 // 0 // 256 // 320
+      val CONV_DELAY    = JACK_BLOCK_SIZE * JACK_NUM_BLOCKS /*+ fftSize*/ + UNKNOWN_DELAY
       val recRun        = ToggleFF.kr(TDelay.kr(Impulse.kr(0), (PRE_DELAY + CONV_DELAY).toDouble / SR))
       val r             = RecordBuf.ar(deConv /*sigIn*/, buf, loop = 0, run = recRun)
       val recDone       = Done.kr(r)
@@ -142,16 +142,6 @@ object Main {
     pAttr.put("sweep-rvs", cueBwd)
     pAttr.put("out", vrSweep)
     val r = Runner(p)
-//    import universe.{cursor, workspace}
-//    implicit val undo: UndoManager[T] = UndoManager.dummy[T]
-//    implicit val ctx: Context[T] = Context[T](selfH = Some(tx.newHandle(p)))
-//    val vrSweep = Var[Seq[Double]]()
-//    val vrSweepEntry: Ex[(String, Seq[Double])] = ("out", vrSweep: Ex[Seq[Double]])
-//    val vrSweepEx = vrSweep.expand[T]
-//    val vrSweepEntryEx = vrSweepEntry.expand[T]
-//    import ctx.targets
-//    val map = new IExprAsRunnerMap[T](vrSweepEntryEx :: Nil, tx)
-//    r.prepare(map)
 
     def nextRun()(implicit tx: T): Unit = {
       println(s"Running sweep rec (iteration ${RunIdx()})")
@@ -169,7 +159,8 @@ object Main {
 //        println(s"numEmpty $numEmpty")
 //        println(sweepNorm./*drop(numEmpty).*/take(256).mkString(", "))
 
-        {
+        // the first one is still badly cropped
+        if (RunIdx() > 0) {
           val afOut = AudioFile.openWrite(new File(dirAudio, s"_killme${RunIdx()}.aif"),
             AudioFileSpec(numChannels = 1, sampleRate = SR))
           afOut.write(Array(sweepNorm.toArray))
