@@ -15,14 +15,16 @@ package de.sciss.tagfalter
 
 import de.sciss.audiofile.{AudioFile, AudioFileSpec}
 import de.sciss.file.userHome
+import de.sciss.lucre.Txn.{peer => peerTx}
 import de.sciss.lucre.synth.{InMemory, Server}
 import de.sciss.lucre.{Artifact, ArtifactLocation, DoubleVector, Workspace}
 import de.sciss.osc
-import de.sciss.proc.{AudioCue, AuralSystem, Proc, Runner, SoundProcesses, Universe}
+import de.sciss.proc.{AudioCue, AuralSystem, Proc, Runner, SoundProcesses, TimeRef, Universe}
 import de.sciss.synth.proc.graph.PartConv
 import de.sciss.synth.{Client, SynthGraph}
 
 import java.io.File
+import scala.concurrent.stm.Ref
 
 object Main {
   type T = InMemory.Txn
@@ -48,7 +50,7 @@ object Main {
       as.react { tx => {
         case AuralSystem.Running(s) =>
           tx.afterCommit {
-            s.peer.dumpOSC()
+//            s.peer.dumpOSC()
             SoundProcesses.step[T]("detect-space") { implicit tx =>
               implicit val ws: Workspace[T] = Workspace.Implicits.dummy[T]
               implicit val u: Universe[T] = Universe[T]()
@@ -63,6 +65,31 @@ object Main {
   }
 
   def detectSpace()(implicit tx: T, universe: Universe[T]): Unit = {
+    // the Pi HAT sound card is the worst piece of crap
+    // I have seen in years. It "pauses" the alsa driver, or something like that,
+    // when it sees a zero signal. When it "resumes", we get random latencies.
+    // To avoid that, we add a permanent noise output.
+    println("Start background noise")
+    val pN = Proc[T]()
+    pN.graph() = SynthGraph {
+      import de.sciss.synth.Import._
+      import de.sciss.synth.ugen.{DiskIn => _, PartConv => _, _}
+      val sig = WhiteNoise.ar(4.0e-4) // -68 dB
+      sig.poll(0, "NOISE")
+      PhysicalOut.ar(0, sig)
+    }
+    val rN = Runner(pN)
+    rN.run()
+
+    import universe.scheduler
+    val now = scheduler.time
+    scheduler.schedule(now + (TimeRef.SampleRate * 2).toLong) { implicit tx =>
+      println("Start detect space")
+      detectSpaceImpl()
+    }
+  }
+
+  private def detectSpaceImpl()(implicit tx: T, universe: Universe[T]): Unit = {
     val p = Proc[T]()
     val dirAudio  = new File(userHome, "Documents/projects/Klangnetze/audio_work")
     val locAudio  = ArtifactLocation.newConst[T](dirAudio.toURI)
@@ -73,14 +100,14 @@ object Main {
     val cueFwd    = AudioCue.Obj[T](artFwd, specFwd, 0L, 1.0)
     val cueBwd    = AudioCue.Obj[T](artBwd, specBwd, 0L, 1.0)
 
+    val NumRuns   = 4
+    val RunIdx    = Ref(1)
+
     p.graph() = SynthGraph {
       import de.sciss.synth.Import._
       import de.sciss.synth.proc.graph._
       import de.sciss.synth.ugen.{DiskIn => _, PartConv => _, _}
        val sweep    = DiskIn.ar("in")
-//      val sweepFreq = Line.ar(100.0, 16000.0, 2)
-//      val sweep     = SinOsc.ar(sweepFreq)
-//      sweepFreq.poll(4, "sweep-freq")
       val gainSpkr  = 0.2 // "gain-in" .kr(0.2)
       val gainMic   = 1.0 // 4.0 // "gain-out".kr(4.0)
       val outChan   = 0 // "out-ch"    .kr(0)
@@ -125,6 +152,12 @@ object Main {
 //    import ctx.targets
 //    val map = new IExprAsRunnerMap[T](vrSweepEntryEx :: Nil, tx)
 //    r.prepare(map)
+
+    def nextRun()(implicit tx: T): Unit = {
+      println(s"Running sweep rec (iteration ${RunIdx()})")
+      r.run()
+    }
+
     r.react { implicit tx => {
       case Runner.Done =>
         println("(rec done)")
@@ -134,30 +167,35 @@ object Main {
         val sweepNorm = sweep.map(_ * normGain)
 //        val numEmpty = sweep.segmentLength(_ == 0.0)
 //        println(s"numEmpty $numEmpty")
-        println(sweepNorm./*drop(numEmpty).*/take(256).mkString(", "))
+//        println(sweepNorm./*drop(numEmpty).*/take(256).mkString(", "))
 
         {
-          val afOut = AudioFile.openWrite(new File(dirAudio, "_killme.aif"),
+          val afOut = AudioFile.openWrite(new File(dirAudio, s"_killme${RunIdx()}.aif"),
             AudioFileSpec(numChannels = 1, sampleRate = SR))
           afOut.write(Array(sweepNorm.toArray))
           afOut.close()
         }
-        sys.exit()
+
+        if (RunIdx.transformAndGet(_ + 1) <= NumRuns) {
+          nextRun()
+        } else {
+          sys.exit()
+        }
 
       case Runner.Running =>
         println("(rec running)")
-        new Thread {
-          override def run(): Unit = {
-            Thread.sleep(2000)
-            val s = de.sciss.synth.Server.default
-            s.dumpOSC(osc.Dump.Off)
-          }
-        } .start()
+//        new Thread {
+//          override def run(): Unit = {
+//            Thread.sleep(2000)
+//            val s = de.sciss.synth.Server.default
+//            s.dumpOSC(osc.Dump.Off)
+//          }
+//        } .start()
 
       case state =>
         println(s"(rec state $state)")
     }}
-    println("Running sweep rec")
-    r.run()
+
+     nextRun()
   }
 }
