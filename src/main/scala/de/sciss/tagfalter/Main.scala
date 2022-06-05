@@ -19,7 +19,9 @@ import de.sciss.lucre.Txn.{peer => peerTx}
 import de.sciss.lucre.synth.{InMemory, Server, Synth}
 import de.sciss.lucre.{Artifact, ArtifactLocation, DoubleVector, Workspace}
 import de.sciss.proc.{AudioCue, AuralSystem, Proc, Runner, SoundProcesses, TimeRef, Universe}
+import de.sciss.rogues.BuildInfo
 import de.sciss.synth.{Client, SynthGraph}
+import org.rogach.scallop.{ScallopConf, ScallopOption => Opt}
 
 import java.io.File
 import scala.concurrent.stm.Ref
@@ -29,10 +31,37 @@ object Main {
 
   final val SR = 48000
 
-  case class Config()
+  case class Config(
+                   debug: Boolean = false
+                   )
 
   def main(args: Array[String]): Unit = {
-    implicit val config: Config = Config()
+    {
+      import BuildInfo._
+      println(s"$name v$version, built $builtAtString")
+    }
+
+    object p extends ScallopConf(args) {
+
+      import org.rogach.scallop._
+
+      printedName = "Tagfalter"
+      private val default = Config()
+
+      //      val numCircles: Opt[Int] = opt(default = Some(default.numCircles),
+      //        descr = s"Number of moons, 3 or larger (default: ${default.numCircles}).",
+      //        validate = x => x >= 3
+      //      )
+      val debug: Opt[Boolean] = toggle(default = Some(default.debug),
+        descrYes = "Enter debug mode (verbosity, control files).",
+      )
+
+      verify()
+      implicit val config: Config = Config(
+        debug = debug(),
+      )
+    }
+    import p.config
     run()
   }
 
@@ -62,7 +91,7 @@ object Main {
     }
   }
 
-  def detectSpace(s: Server)(implicit tx: T, universe: Universe[T]): Unit = {
+  def detectSpace(s: Server)(implicit tx: T, universe: Universe[T], config: Config): Unit = {
     // the Pi HAT sound card is the worst piece of crap
     // I have seen in years. It "pauses" the alsa driver, or something like that,
     // when it sees a zero signal. When it "resumes", we get random latencies.
@@ -72,13 +101,9 @@ object Main {
       import de.sciss.synth.Import._
       import de.sciss.synth.ugen.{DiskIn => _, PartConv => _, _}
       val sig = WhiteNoise.ar(4.0e-4) // -68 dB -- minimum volume necessary to unblock audio driver
-      sig.poll(0, "NOISE")
+      if (config.debug) sig.poll(0, "NOISE")
       PhysicalOut.ar(0, sig)
     }
-//    val pN = Proc[T]()
-//    pN.graph() = gNoise
-//    val rN = Runner(pN)
-//    rN.run()
     /*val synNoise =*/ Synth.play(gNoise, nameHint = Some("noise"))(s)
 
     import universe.scheduler
@@ -89,7 +114,7 @@ object Main {
     }
   }
 
-  private def detectSpaceImpl()(implicit tx: T, universe: Universe[T]): Unit = {
+  private def detectSpaceImpl()(implicit tx: T, universe: Universe[T], config: Config): Unit = {
     val p = Proc[T]()
     val dirAudio  = new File(userHome, "Documents/projects/Klangnetze/audio_work")
     val locAudio  = ArtifactLocation.newConst[T](dirAudio.toURI)
@@ -115,7 +140,7 @@ object Main {
       val sigOut    = sweep * gainSpkr
       PhysicalOut.ar(outChan, sigOut)
       val sigIn     = PhysicalIn.ar * gainMic
-      sigIn.poll(0, "MIC")
+      if (config.debug) sigIn.poll(0, "MIC")
       //DiskOut.ar("out", sigIn)
       val fftSize  = 2048
       val deConv   = PartConv.ar("sweep-rvs", sigIn, fftSize = fftSize)
@@ -160,7 +185,7 @@ object Main {
 //        println(sweepNorm./*drop(numEmpty).*/take(256).mkString(", "))
 
         // the first one is still badly cropped
-        if (RunIdx() > 0) {
+        if (config.debug  && RunIdx() > 0) {
           val afOut = AudioFile.openWrite(new File(dirAudio, s"_killme${RunIdx()}.aif"),
             AudioFileSpec(numChannels = 1, sampleRate = SR))
           afOut.write(Array(sweepNorm.toArray))
