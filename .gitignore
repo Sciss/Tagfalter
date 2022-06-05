@@ -1,0 +1,13 @@
+target/
+lib_managed/
+src_managed/
+project/boot/
+.idea/
+.idea_modules/
+*.app
+*.swp
+/.bsp/
+*-assembly-*.jar
+workspaces/*.mllt/*.csv
+pico_stuff/.vscode
+common/Rogues-common.jar
