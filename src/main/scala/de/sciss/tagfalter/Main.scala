@@ -13,13 +13,14 @@
 
 package de.sciss.tagfalter
 
-import de.sciss.lucre.{DoubleVector, Workspace}
-import de.sciss.lucre.edit.UndoManager
-import de.sciss.lucre.expr.graph.{Ex, Var}
-import de.sciss.lucre.expr.{Context, IExprAsRunnerMap}
+import de.sciss.audiofile.AudioFileSpec
+import de.sciss.file.userHome
 import de.sciss.lucre.synth.{InMemory, Server}
-import de.sciss.proc.{AuralSystem, Proc, Runner, SoundProcesses, Universe}
+import de.sciss.lucre.{Artifact, ArtifactLocation, DoubleVector, Workspace}
+import de.sciss.proc.{AudioCue, AuralSystem, Proc, Runner, SoundProcesses, Universe}
 import de.sciss.synth.{Client, SynthGraph}
+
+import java.io.File
 
 object Main {
   type T = InMemory.Txn
@@ -60,14 +61,20 @@ object Main {
 
   def detectSpace()(implicit tx: T, universe: Universe[T]): Unit = {
     val p = Proc[T]()
+    val dirAudio  = new File(userHome, "Documents/projects/Klangnetze/audio_work")
+    val locAudio  = ArtifactLocation.newConst[T](dirAudio.toURI)
+    val artFwd    = Artifact[T](locAudio, Artifact.Child("sweep2s_48kHz.aif"))
+    val specFwd   = AudioFileSpec(numChannels = 1, sampleRate = SR)
+    val cueFwd    = AudioCue.Obj[T](artFwd, specFwd, 0L, 1.0)
+
     p.graph() = SynthGraph {
       import de.sciss.synth.Import._
       import de.sciss.synth.proc.graph._
       import de.sciss.synth.ugen.{DiskIn => _, _}
-      // val sweep     = DiskIn.ar("in")
-      val sweepFreq = Line.ar(100.0, 16000.0, 2)
-      val sweep     = SinOsc.ar(sweepFreq)
-      sweepFreq.poll(4, "sweep-freq")
+       val sweep     = DiskIn.ar("in")
+//      val sweepFreq = Line.ar(100.0, 16000.0, 2)
+//      val sweep     = SinOsc.ar(sweepFreq)
+//      sweepFreq.poll(4, "sweep-freq")
       val gainIn    = 0.2 // "gain-in" .kr(0.2)
       val gainOut   = 4.0 // "gain-out".kr(4.0)
       val outChan   = 0 // "out-ch"    .kr(0)
@@ -86,7 +93,9 @@ object Main {
     }
 
     val vrSweep = DoubleVector.newVar[T](Vector.empty)
-    p.attr.put("out", vrSweep)
+    val pAttr = p.attr
+    pAttr.put("in", cueFwd)
+    pAttr.put("out", vrSweep)
     val r = Runner(p)
 //    import universe.{cursor, workspace}
 //    implicit val undo: UndoManager[T] = UndoManager.dummy[T]
