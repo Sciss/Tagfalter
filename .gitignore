@@ -8,6 +8,7 @@ project/boot/
 *.swp
 /.bsp/
 *-assembly-*.jar
+Tagfalter.jar
 workspaces/*.mllt/*.csv
 pico_stuff/.vscode
 common/Rogues-common.jar
