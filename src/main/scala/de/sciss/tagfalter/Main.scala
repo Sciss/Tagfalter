@@ -13,7 +13,7 @@
 
 package de.sciss.tagfalter
 
-import de.sciss.lucre.Workspace
+import de.sciss.lucre.{DoubleVector, Workspace}
 import de.sciss.lucre.edit.UndoManager
 import de.sciss.lucre.expr.graph.{Ex, Var}
 import de.sciss.lucre.expr.{Context, IExprAsRunnerMap}
@@ -85,21 +85,24 @@ object Main {
       DoneSelf(getDone)
     }
 
+    val vrSweep = DoubleVector.newVar[T](Vector.empty)
+    p.attr.put("out", vrSweep)
     val r = Runner(p)
-    import universe.{cursor, workspace}
-    implicit val undo: UndoManager[T] = UndoManager.dummy[T]
-    implicit val ctx: Context[T] = Context[T](selfH = Some(tx.newHandle(p)))
-    val vrSweep = Var[Seq[Double]]()
-    val vrSweepEntry: Ex[(String, Seq[Double])] = ("out", vrSweep: Ex[Seq[Double]])
-    val vrSweepEx = vrSweep.expand[T]
-    val vrSweepEntryEx = vrSweepEntry.expand[T]
-    import ctx.targets
-    val map = new IExprAsRunnerMap[T](vrSweepEntryEx :: Nil, tx)
-    r.prepare(map)
+//    import universe.{cursor, workspace}
+//    implicit val undo: UndoManager[T] = UndoManager.dummy[T]
+//    implicit val ctx: Context[T] = Context[T](selfH = Some(tx.newHandle(p)))
+//    val vrSweep = Var[Seq[Double]]()
+//    val vrSweepEntry: Ex[(String, Seq[Double])] = ("out", vrSweep: Ex[Seq[Double]])
+//    val vrSweepEx = vrSweep.expand[T]
+//    val vrSweepEntryEx = vrSweepEntry.expand[T]
+//    import ctx.targets
+//    val map = new IExprAsRunnerMap[T](vrSweepEntryEx :: Nil, tx)
+//    r.prepare(map)
     r.react { implicit tx => {
       case Runner.Done =>
         println("Doningsdorfer")
-        val sweep = vrSweepEx.value
+//        val sweep = vrSweepEx.value
+        val sweep = vrSweep.value
         println(sweep.mkString(", "))
         sys.exit()
 
