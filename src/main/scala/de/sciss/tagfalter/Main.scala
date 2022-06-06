@@ -18,30 +18,41 @@ import de.sciss.file.userHome
 import de.sciss.lucre.Txn.{peer => peerTx}
 import de.sciss.lucre.synth.{InMemory, Server, Synth}
 import de.sciss.lucre.{Artifact, ArtifactLocation, DoubleVector, Workspace}
-import de.sciss.numbers.Implicits.intNumberWrapper
+import de.sciss.numbers.Implicits._
 import de.sciss.proc.{AudioCue, AuralSystem, Proc, Runner, SoundProcesses, TimeRef, Universe}
 import de.sciss.rogues.BuildInfo
+import de.sciss.synth.UGenSource.Vec
 import de.sciss.synth.{Client, SynthGraph}
 import org.rogach.scallop.{ScallopConf, ScallopOption => Opt}
 
 import java.io.File
+import scala.annotation.tailrec
 import scala.concurrent.stm.Ref
 
 object Main {
   type T = InMemory.Txn
 
   final val SR = 48000
-  private final val durIRRec      = 3.0 // "total-dur-sec".kr(3)
-  private final val framesIRRec   = (durIRRec * SR).toInt
-  private final val threshExcess  = -30.dbAmp // -40.dbAmp
-  private final val rangeLocalMax = 128 // 32
-  private final val maxIRPos      = framesIRRec / rangeLocalMax
-  private final val speedOfSound  = 343.0   // m/s
+  private final val durIRRec            = 3.0f // "total-dur-sec".kr(3)
+  private final val framesIRRec         = (durIRRec * SR).toInt
+  private final val threshExcessDefault = -30.dbAmp // -40.dbAmp
+  private final val threshExcessMin     = -42.dbAmp // -40.dbAmp
+  private final val threshExcessMax     = -18.dbAmp // -40.dbAmp
+  private final val rangeLocalMax       = 128 // 32
+  private final val bufLenIRPos         = framesIRRec / rangeLocalMax
+  private final val speedOfSound        = 343.0f  // m/s
+  private final val minIRPos            =  4  // center clipping will be adjusted to account for this
+  private final val maxIRPos            = 24  // center clipping will be adjusted to account for this
+  private final val toleranceIRPosCM    = 10f // cm
+  private final val frameToCM           = 1.0f / SR * (speedOfSound * 100)
+  private final val NumIRRuns           = 4
+  private final val minIRPosRepeat      = (NumIRRuns * 2.0f/3 + 0.5).toInt
 
   case class Config(
                    debug          : Boolean = false,
                    noise          : Boolean = false,
                    unknownLatency : Int     = -64,
+                   spaceCorrection: Float   = -20f,
                    )
 
   def main(args: Array[String]): Unit = {
@@ -66,10 +77,16 @@ object Main {
       val noise: Opt[Boolean] = toggle(default = Some(default.noise),
         descrYes = "Add background noise sound (testing).",
       )
+      val spaceCorrection: Opt[Float] = opt(default = Some(default.spaceCorrection),
+        descr = s"Add correction in cm to space measurements (default: ${default.spaceCorrection}).",
+      )
 
       verify()
       implicit val config: Config = Config(
-        debug = debug(),
+        debug           = debug(),
+        unknownLatency  = unknownLatency(),
+        noise           = noise(),
+        spaceCorrection = spaceCorrection(),
       )
     }
     import p.config
@@ -154,6 +171,8 @@ object Main {
 
   private def prepareIR(in: Array[Double]): Unit = {
     // from mllt: sliding three frames 'max', center clipping, and abs
+    // Note: no longer applies the center clipping at this point, as
+    // we might need to adjust the threshold on the fly
 
     val out = in
     val len = in.length
@@ -167,9 +186,9 @@ object Main {
       } else if (x1 > x2) x1 else x2
 
       val y0Abs = if (y0Smooth >= 0.0) y0Smooth else -y0Smooth
-      val y0ExcM = y0Abs - threshExcess
-      val y0Exc = if (y0ExcM >= 0.0) y0ExcM else 0.0
-      val y0 = y0Exc
+//      val y0ExcM = y0Abs - threshExcess
+//      val y0Exc = if (y0ExcM >= 0.0) y0ExcM else 0.0
+      val y0 = y0Abs // y0Exc
       out(i) = y0
       x2 = x1; x1 = x0
       i += 1
@@ -177,7 +196,7 @@ object Main {
   }
 
   // `out` should have a size of at least `maxIRPos`
-  private def detectLocalMax(in: Array[Double], out: Array[Int]): Int = {
+  private def detectLocalMax(in: Array[Double], out: Array[Int], threshExcess: Double): Int = {
     val len = in.length
 
     var readMode      = true
@@ -212,7 +231,9 @@ object Main {
           var skip      = calcSkip()
 
           while (skip > 0) {
-            val x1      = in(framesRead)
+            // perform ad-hoc center clipping here
+            val x1raw   = in(framesRead) - threshExcess
+            val x1      = if (x1raw >= 0.0) x1raw else 0.0
             val up  =         x1 >= x0
             val gt1 = up   && x1 >  x0
             val lt1 = !gt1 && x1 <  x0
@@ -301,8 +322,11 @@ object Main {
     val cueFwd    = AudioCue.Obj[T](artFwd, specFwd, 0L, 1.0)
     val cueBwd    = AudioCue.Obj[T](artBwd, specBwd, 0L, 1.0)
 
-    val NumRuns   = 4
-    val RunIdx    = Ref(1) // (0)
+    val RunIdx        = Ref(1) // (0)
+    val ThreshExcess  = Ref(threshExcessDefault)
+
+    val posBufSq      = Array.ofDim[Int](NumIRRuns, bufLenIRPos)
+    val numPosSq      = Array.ofDim[Int](NumIRRuns)
 
     p.graph() = SynthGraph {
       import de.sciss.synth.Import._
@@ -311,8 +335,8 @@ object Main {
 //      val sweep     = DiskIn.ar("in")
       val sweepBuf  = Buffer("in")
       val sweep     = PlayBuf.ar(1, sweepBuf, loop = 0)
-      val gainSpkr  = 0.2 // "gain-in" .kr(0.2)
-      val gainMic   = 1.0 // 4.0 // "gain-out".kr(4.0)
+      val gainSpkr  = 0.2f // "gain-in" .kr(0.2)
+      val gainMic   = 1.0f // 4.0 // "gain-out".kr(4.0)
       val outChan   = 0 // "out-ch"    .kr(0)
       val sigOut    = sweep * gainSpkr
       PhysicalOut.ar(outChan, sigOut)
@@ -328,7 +352,7 @@ object Main {
       // there is a crazy variance in the latency between scsynth/jackd, up to several hundred sample frames.
       // no idea how to explain it. This one works in 80-90% of the cases
       val CONV_DELAY    = JACK_BLOCK_SIZE * JACK_NUM_BLOCKS + fftSize + config.unknownLatency
-      val recRun        = ToggleFF.kr(TDelay.kr(Impulse.kr(0), (PRE_DELAY + CONV_DELAY).toDouble / SR))
+      val recRun        = ToggleFF.kr(TDelay.kr(Impulse.kr(0), (PRE_DELAY + CONV_DELAY).toFloat / SR))
       val r             = RecordBuf.ar(deConv /*sigIn*/, buf, loop = 0, run = recRun)
       val recDone       = Done.kr(r)
       //StopSelf(Done.kr(elapsed))
@@ -353,44 +377,89 @@ object Main {
         println("(rec done)")
 
         // the first one is still badly cropped
-        if (RunIdx() > 0) {
+        val runIdx = RunIdx()
+        if (runIdx > 0) {
 
-  //        val sweep = vrSweepEx.value
-          val sweep     = vrSweep.value.toArray
-  //        val normGain  = if (sweep.isEmpty) 1.0 else 1.0 / Math.max(1.0e-6, sweep.iterator.map(x => Math.abs(x)).max)
-  //        val sweepNorm = sweep.map(_ * normGain)
-  //        val numEmpty = sweep.segmentLength(_ == 0.0)
-  //        println(s"numEmpty $numEmpty")
-  //        println(sweepNorm./*drop(numEmpty).*/take(256).mkString(", "))
+          val sweep = vrSweep.value.toArray
 
           normalize(sweep)
           prepareIR(sweep)
-          val posBuf = new Array[Int](maxIRPos)
-          val numPos = detectLocalMax(sweep, posBuf)
+          val posBuf = posBufSq(runIdx - 1) // new Array[Int](bufLenIRPos)
+          val numPos: Int = {
+
+            @tailrec
+            def tryDetect(attemptsLeft: Int): Int = {
+              val t = ThreshExcess()
+              val n = detectLocalMax(sweep, posBuf, threshExcess = t)
+              if (attemptsLeft == 0) n else {
+                // move up and down in 3 dB steps
+                if (n < minIRPos && t > threshExcessMin) {
+                  val t1 = t * 0.71f
+                  println(s"-- lowering threshold to $t1")
+                  ThreshExcess() = t1
+                  tryDetect(attemptsLeft = attemptsLeft - 1)
+                } else if (n > maxIRPos && t < threshExcessMax) {
+                  val t1 = t * 1.413f
+                  println(s"-- raising threshold to $t1")
+                  ThreshExcess() = t1
+                  tryDetect(attemptsLeft = attemptsLeft - 1)
+                } else {
+                  n
+                }
+              }
+            }
+
+            tryDetect(attemptsLeft = if (runIdx == 1) 3 else 1)
+          }
+          numPosSq(runIdx - 1) = numPos
 
           val posBufT = posBuf.take(numPos)
-          val cm      = posBufT.map(x => (x.toDouble / SR * (speedOfSound * 100)))
+          val cm      = posBufT.map(x => x.toFloat * frameToCM + config.spaceCorrection)
           val cmS     = cm.map(x => "%1.1f".format(x))
 
           println(posBufT .mkString("Pos (smp): ", ", ", ""))
           println(cmS     .mkString("Pos (cm ): ", ", ", ""))
 
           if (config.debug) {
-            val afOut = AudioFile.openWrite(new File(dirAudio, s"_killme${RunIdx()}.aif"),
+            val afOut = AudioFile.openWrite(new File(dirAudio, s"_killme$runIdx.aif"),
               AudioFileSpec(numChannels = 1, sampleRate = SR))
             afOut.write(Array(sweep))
             afOut.close()
           }
         }
 
-        if (RunIdx.transformAndGet(_ + 1) <= NumRuns) {
+        if (RunIdx.transformAndGet(_ + 1) <= NumIRRuns) {
           nextRun()
         } else {
+          // now unify the measurements
+          val cmAccAll = posBufSq.iterator.zip(numPosSq).flatMap { case (posBuf, numPos) =>
+            posBuf.iterator.take(numPos).map { x =>
+              Math.max(0f, x * frameToCM + config.spaceCorrection)
+            } .toArray[Float]
+          } .toArray
+          // val toleranceSmp  = toleranceIRPosCM / frameToCM
+          val cmGroups = cmAccAll.sorted.foldLeft(Vec.empty[Vec[Float]]) {
+            case (aggr, x) =>
+              val last  = aggr.lastOption.getOrElse(Vec.empty)
+              val merge = last.forall { y => (y absDif x) < toleranceIRPosCM }
+              if (merge) {
+                val init = aggr.dropRight(1) // init
+                init :+ (last :+ x)
+              } else {
+                aggr :+ Vec(x)
+              }
+          }
+          val posFound  = cmGroups.filter(_.size >= minIRPosRepeat)
+          val cmMean    = posFound.map(xs => xs.sum / xs.size) // .mean
+
+          println(s"Found ${cmMean.size} stable positions (cm):")
+          println(cmMean.map(x => "%1.1f".format(x)).mkString(", "))
+
           sys.exit()
         }
 
-      case Runner.Running =>
-        println("(rec running)")
+//      case Runner.Running =>
+//        println("(rec running)")
 //        new Thread {
 //          override def run(): Unit = {
 //            Thread.sleep(2000)
@@ -400,7 +469,7 @@ object Main {
 //        } .start()
 
       case state =>
-        println(s"(rec state $state)")
+        println(s"(rec $state)")
     }}
 
      nextRun()
