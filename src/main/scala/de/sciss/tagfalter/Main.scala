@@ -41,18 +41,18 @@ object Main {
   private final val rangeLocalMax       = 128 // 32
   private final val bufLenIRPos         = framesIRRec / rangeLocalMax
   private final val speedOfSound        = 343.0f  // m/s
-  private final val minIRPos            =  4  // center clipping will be adjusted to account for this
-  private final val maxIRPos            = 24  // center clipping will be adjusted to account for this
   private final val toleranceIRPosCM    = 10f // cm
   private final val frameToCM           = 1.0f / SR * (speedOfSound * 100)
   private final val NumIRRuns           = 4
   private final val minIRPosRepeat      = (NumIRRuns * 2.0f/3 + 0.5).toInt
 
   case class Config(
-                   debug          : Boolean = false,
-                   noise          : Boolean = false,
-                   unknownLatency : Int     = -64,
-                   spaceCorrection: Float   = -20f,
+                     debug          : Boolean = false,
+                     noise          : Boolean = false,
+                     unknownLatency : Int     = -64, // frames
+                     spaceCorrection: Float   = -26f, // cm
+                     minSpacePos    : Int     =  6,
+                     maxSpacePos    : Int     = 24,
                    )
 
   def main(args: Array[String]): Unit = {
@@ -77,6 +77,14 @@ object Main {
       val noise: Opt[Boolean] = toggle(default = Some(default.noise),
         descrYes = "Add background noise sound (testing).",
       )
+      val minSpacePos: Opt[Int] = opt(default = Some(default.minSpacePos),
+        descr = s"Minimum number of spatial positions, center clipping will be adjusted (default: ${default.minSpacePos}).",
+        validate = _ > 1
+      )
+      val maxSpacePos: Opt[Int] = opt(default = Some(default.maxSpacePos),
+        descr = s"Maximum number of spatial positions, center clipping will be adjusted (default: ${default.maxSpacePos}).",
+        validate = _ > 1
+      )
       val spaceCorrection: Opt[Float] = opt(default = Some(default.spaceCorrection),
         descr = s"Add correction in cm to space measurements (default: ${default.spaceCorrection}).",
       )
@@ -87,6 +95,8 @@ object Main {
         unknownLatency  = unknownLatency(),
         noise           = noise(),
         spaceCorrection = spaceCorrection(),
+        minSpacePos     = minSpacePos(),
+        maxSpacePos     = maxSpacePos(),
       )
     }
     import p.config
@@ -393,12 +403,12 @@ object Main {
               val n = detectLocalMax(sweep, posBuf, threshExcess = t)
               if (attemptsLeft == 0) n else {
                 // move up and down in 3 dB steps
-                if (n < minIRPos && t > threshExcessMin) {
+                if (n < config.minSpacePos && t > threshExcessMin) {
                   val t1 = t * 0.71f
                   println(s"-- lowering threshold to $t1")
                   ThreshExcess() = t1
                   tryDetect(attemptsLeft = attemptsLeft - 1)
-                } else if (n > maxIRPos && t < threshExcessMax) {
+                } else if (n > config.maxSpacePos && t < threshExcessMax) {
                   val t1 = t * 1.413f
                   println(s"-- raising threshold to $t1")
                   ThreshExcess() = t1
