@@ -294,11 +294,10 @@ object Main {
     val p = Proc[T]()
     val dirAudio  = new File(userHome, "Documents/projects/Klangnetze/audio_work")
     val locAudio  = ArtifactLocation.newConst[T](dirAudio.toURI)
-    // XXX TODO: go back to version without initial delay
-    val artFwd    = Artifact[T](locAudio, Artifact.Child("sweep2s_48kHzPre.aif"))
+    val artFwd    = Artifact[T](locAudio, Artifact.Child("sweep2s_48kHz.aif"))
     val artBwd    = Artifact[T](locAudio, Artifact.Child("sweep2s_48kHzRvs.aif"))
-    val specFwd   = AudioFileSpec(numChannels = 1, sampleRate = SR, numFrames = 3 * SR)
-    val specBwd   = AudioFileSpec(numChannels = 1, sampleRate = SR, numFrames = 2 * SR)
+    val specFwd   = AudioFileSpec(numChannels = 1, sampleRate = SR, numFrames = 2 * SR)
+    val specBwd   = specFwd // AudioFileSpec(numChannels = 1, sampleRate = SR, numFrames = 2 * SR)
     val cueFwd    = AudioCue.Obj[T](artFwd, specFwd, 0L, 1.0)
     val cueBwd    = AudioCue.Obj[T](artBwd, specBwd, 0L, 1.0)
 
@@ -323,7 +322,7 @@ object Main {
       val fftSize  = 2048
       val deConv   = PartConv.ar("sweep-rvs", sigIn, fftSize = fftSize)
       val buf       = Buffer.Empty(framesIRRec)
-      val PRE_DELAY  = (3 * SR).toInt   // damn Pi chokes if we don't add a pre-delay
+      val PRE_DELAY  = (2 /*3 */ * SR).toInt   // damn Pi chokes if we don't add a pre-delay
       val JACK_BLOCK_SIZE = 1024
       val JACK_NUM_BLOCKS = 3
       // there is a crazy variance in the latency between scsynth/jackd, up to several hundred sample frames.
