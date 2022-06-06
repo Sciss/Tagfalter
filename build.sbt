@@ -32,30 +32,32 @@ lazy val root = project.in(file("."))
     name := baseName,
     description  := "An art piece",
     libraryDependencies ++= Seq(
-      "de.sciss"      %% "audiofile"                % deps.main.audioFile,    // record data as sound file
-      "de.sciss"      %% "fileutil"                 % deps.main.fileUtil,     // utility functions
-      "de.sciss"      %% "model"                    % deps.main.model,        // events
-      "de.sciss"      %% "numbers"                  % deps.main.numbers,      // numeric utilities
-      "de.sciss"      %% "scalaosc"                 % deps.main.osc,          // open sound control
-      "de.sciss"      %% "soundprocesses-core"      % deps.main.soundProcesses,
-      "net.harawata"  %  "appdirs"                  % deps.main.appDirs,      // finding standard directories
-      "org.rogach"    %% "scallop"                  % deps.main.scallop,      // command line option parsing
+      "de.sciss"      %% "audiofile"                  % deps.main.audioFile,    // record data as sound file
+      "de.sciss"      %% "fileutil"                   % deps.main.fileUtil,     // utility functions
+      "de.sciss"      %% "model"                      % deps.main.model,        // events
+      "de.sciss"      %% "numbers"                    % deps.main.numbers,      // numeric utilities
+      "de.sciss"      %% "scalaosc"                   % deps.main.osc,          // open sound control
+      "de.sciss"      %% "scalacolliderugens-plugins" % deps.main.ugen,         // third party ugens
+      "de.sciss"      %% "soundprocesses-core"        % deps.main.soundProcesses,
+      "net.harawata"  %  "appdirs"                    % deps.main.appDirs,      // finding standard directories
+      "org.rogach"    %% "scallop"                    % deps.main.scallop,      // command line option parsing
     ),
     assembly / assemblyJarName := s"$baseName.jar",
     resolvers += Resolver.sonatypeRepo("snapshots"),  // needed for hid4java
-    buildInfoPackage := "de.sciss.rogues",
+    buildInfoPackage := "de.sciss.tagfalter",
   )
 
 lazy val deps = new {
   val main = new {
-    val appDirs        = "1.2.1"
-    val audioFile      = "2.4.0"
-    val fileUtil       = "1.1.5"
-    val model          = "0.3.5"
-    val numbers        = "0.2.1"
-    val osc            = "1.3.1"
-    val scallop        = "4.1.0"
-    val soundProcesses = "4.14.4-SNAPSHOT"
+    val appDirs         = "1.2.1"
+    val audioFile       = "2.4.0"
+    val fileUtil        = "1.1.5"
+    val model           = "0.3.5"
+    val numbers         = "0.2.1"
+    val osc             = "1.3.1"
+    val scallop         = "4.1.0"
+    val soundProcesses  = "4.14.4-SNAPSHOT"
+    val ugen            = "1.21.4"
   }
 }
 
