@@ -28,13 +28,17 @@ import scala.concurrent.stm.Ref
 
 object Biphase {
   case class ConfigImpl(
-                         bitPeriod: Float   = 120.0f,
-                         debug    : Boolean = false,
-                         encAmp   : Float   = 0.1f,
-                         decAmp2  : Float   = 0.3f, // 0.5f,
-                         decMicAmp: Float   = 20.0f, // 4.0f,
-                         program  : String  = "enc",
-                         wlanIf   : String  = "wlan0",
+                         bitPeriod  : Float   = 120.0f,
+                         debug      : Boolean = false,
+                         encAmp     : Float   = 0.1f,
+                         decAmp2    : Float   = 0.3f, // 0.5f,
+                         decMicAmp  : Float   = 20.0f, // 4.0f,
+                         program    : String  = "enc",
+                         wlanIf     : String  = "wlan0",
+                         biphaseF1a : Float    = f1a,
+                         biphaseF1b : Float    = f1b,
+                         biphaseF2a : Float    = f2a,
+                         biphaseF2b : Float    = f2b,
                        ) extends Config
 
   trait Config {
@@ -45,6 +49,10 @@ object Biphase {
     def decMicAmp : Float
     def program   : String
     def wlanIf    : String
+    def biphaseF1a: Float
+    def biphaseF1b: Float
+    def biphaseF2a: Float
+    def biphaseF2b: Float
   }
 
   def main(args: Array[String]): Unit = {
@@ -79,16 +87,32 @@ object Biphase {
         descr = s"Program, one of 'enc', 'dec', 'both' (default: ${default.program}).",
         validate = s => s == "enc" || s == "dec" || s == "both"
       )
+      val biphaseF1a: Opt[Float] = opt(default = Some(default.biphaseF1a),
+        descr = s"Codec frequency 1a, linear (default: ${default.biphaseF1a}).",
+      )
+      val biphaseF1b: Opt[Float] = opt(default = Some(default.biphaseF1b),
+        descr = s"Codec frequency 1b, linear (default: ${default.biphaseF1b}).",
+      )
+      val biphaseF2a: Opt[Float] = opt(default = Some(default.biphaseF2a),
+        descr = s"Codec frequency 2a, linear (default: ${default.biphaseF2a}).",
+      )
+      val biphaseF2b: Opt[Float] = opt(default = Some(default.biphaseF2b),
+        descr = s"Codec frequency 2b, linear (default: ${default.biphaseF2b}).",
+      )
 
       verify()
       implicit val config: Config = ConfigImpl(
-        bitPeriod = bitPeriod(),
-        debug     = debug(),
-        encAmp    = encAmp(),
-        decAmp2   = decAmp2(),
-        decMicAmp = decMicAmp(),
-        program   = program(),
-        wlanIf    = wlanIf(),
+        bitPeriod   = bitPeriod(),
+        debug       = debug(),
+        encAmp      = encAmp(),
+        decAmp2     = decAmp2(),
+        decMicAmp   = decMicAmp(),
+        program     = program(),
+        wlanIf      = wlanIf(),
+        biphaseF1a  = biphaseF1a(),
+        biphaseF1b  = biphaseF1b(),
+        biphaseF2a  = biphaseF2a(),
+        biphaseF2b  = biphaseF2b(),
       )
     }
     import p.config
@@ -102,13 +126,17 @@ object Biphase {
       val sch = universe.scheduler
       sch.schedule(sch.time + TimeRef.SampleRate.toLong) { implicit tx =>
         if (config.debug) s.peer.dumpOSC()
+        val freq = Freq(
+          f1a = config.biphaseF1a, f1b = config.biphaseF1b,
+          f2a = config.biphaseF2a, f2b = config.biphaseF2b
+        )
         if (config.program == "dec" || config.program == "both") {
           receive(s) { implicit tx => byte =>
             tx.afterCommit { println(s"dec: ${byte.toChar}") }
           }
         }
         if (config.program == "enc" || config.program == "both") {
-          send(s, bytes)(_ => ())
+          send(s, bytes, freq = freq)(_ => ())
         }
       }
     }
@@ -227,7 +255,7 @@ object Biphase {
     }
   }
 
-  def receive(s: Server)(consume: T => Byte => Unit)
+  def receive(s: Server /*, freq: Freq = globalFreq*/)(consume: T => Byte => Unit)
              (implicit tx: T, config: Config, universe: Universe[T]): Disposable[T] = {
     val g = SynthGraph {
       import de.sciss.synth.Import._
@@ -235,8 +263,8 @@ object Biphase {
       import de.sciss.synth.ugen.{DiskIn => _, PartConv => _, _}
       // version: 06-Jun-2022
 
-      val f1        = f1a // 4240.0 // "freq-space".kr(1000) // Hz
-      val f2        = f2a // 11120.0 // "freq-mark" .kr(1200) // Hz
+      val f1        = config.biphaseF1a // f1a // 4240.0 // "freq-space".kr(1000) // Hz
+      val f2        = config.biphaseF2a // f2a // 11120.0 // "freq-mark" .kr(1200) // Hz
       val bitPeriod = config.bitPeriod // 120.0 // 160.0 // 80.0 // "bit-period".kr(40.0) // ms
       val CD        = ControlDur.ir
       val bitLen    = bitPeriod / 1000.0 * SR
@@ -322,7 +350,8 @@ object Biphase {
     def actPutBit(bit: Int)(implicit tx: T): Unit = {
       println(s"put $bit")
       vrByte.transform(x => (x << 1) | bit)
-      if (vrCnt() == 0) vrStop.set(true)
+      val newCount = vrCnt.transformAndGet(+_ + 1)
+      if (newCount == 8) vrStop.set(true)
     }
 
     object BitResponder extends ActionResponder[T]("emit", syn) {

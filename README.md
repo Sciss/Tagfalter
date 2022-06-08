@@ -17,3 +17,7 @@ Builds with sbt against Scala 2.13.
 ## settings
 
 Assuming Jack runs at 1024 block size and 3 blocks, 48 kHz.
+
+Biphase tests:
+
+    --biphase-f1a 5000 --biphase-f2a 6000 --biphase-f1b 7000 --biphase-f2b 8000 --dec-amp2 0.8
