@@ -423,13 +423,13 @@ object DetectSpace {
           nextRun()
         } else {
           // now unify the measurements
-          val cmAccAll = posBufSq.iterator.zip(numPosSq).flatMap { case (posBuf, numPos) =>
+          val cmAccAll: Array[Float] = posBufSq.iterator.zip(numPosSq).flatMap { case (posBuf, numPos) =>
             posBuf.iterator.take(numPos).map { x =>
               Math.max(0f, x * frameToCM + config.spaceCorrection)
             } .toArray[Float]
           } .toArray
           // val toleranceSmp  = toleranceIRPosCM / frameToCM
-          val cmGroups = cmAccAll.sorted.foldLeft(Vec.empty[Vec[Float]]) {
+          val cmGroups = cmAccAll.sorted.foldLeft[Vec[Vec[Float]]](Vec.empty) {
             case (aggr, x) =>
               val last  = aggr.lastOption.getOrElse(Vec.empty)
               val merge = last.forall { y => (y absDif x) < toleranceIRPosCM }

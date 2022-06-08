@@ -56,7 +56,7 @@ lazy val deps = new {
     val numbers         = "0.2.1"
     val osc             = "1.3.1"
     val scallop         = "4.1.0"
-    val soundProcesses  = "4.14.4-SNAPSHOT"
+    val soundProcesses  = "4.14.4"
     val ugen            = "1.21.4"
   }
 }
