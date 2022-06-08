@@ -13,10 +13,11 @@
 
 package de.sciss.tagfalter
 
-import de.sciss.lucre.Workspace
+import de.sciss.lucre.{DoubleVector, Workspace}
 import de.sciss.lucre.synth.{InMemory, Server}
-import de.sciss.proc.{AuralSystem, SoundProcesses, Universe}
-import de.sciss.synth.Client
+import de.sciss.proc.{AuralSystem, Proc, Runner, SoundProcesses, Universe}
+import de.sciss.synth.UGenSource.Vec
+import de.sciss.synth.{Client, SynthGraph}
 import de.sciss.tagfalter.DetectSpace.{Config, detectSpace}
 
 import scala.collection.Seq
@@ -27,8 +28,57 @@ object Main {
 
   final val SR = 48000
 
+  case class ConfigImpl() extends Config
+
+  trait Config {
+
+  }
+
   def main(args: Array[String]): Unit = {
-    DetectSpace.main(args)
+    // DetectSpace.main(args)
+    implicit val config: Config = ConfigImpl()
+    run()
+  }
+
+  def run()(implicit config: Config): Unit = {
+    boot { implicit tx => implicit universe => s =>
+      implicit val cfgDetect: DetectSpace.Config = DetectSpace.ConfigImpl()
+      DetectSpace(){ implicit tx => cmMean =>
+        spaceTimbre(cmMean)
+      }
+    }
+  }
+
+  def spaceTimbre(vec: Vec[Float])(implicit tx: T, universe: Universe[T]): Unit = {
+    val g = SynthGraph {
+      import de.sciss.synth.Import._
+      import de.sciss.synth.proc.graph.Ops.stringToControl
+      import de.sciss.synth.ugen.{DiskIn => _, PartConv => _, _}
+      val space     = "space".kr(1.0) // Seq(1.0, 2.0))
+      //space.poll(0, "space")
+      val spaceLo   = Reduce.min(space)
+      val spaceHi   = Reduce.max(space)
+      spaceLo.poll(0, "space-lo")
+      spaceHi.poll(0, "space-hi")
+      val spaceMin  =    60.0 // 10.0
+      val spaceMax  = 12000.0 // 2000.0
+      val freqMin   = 150.0 // 250.0 // 150.0
+      val freqMax   = 15000.0
+      val freqSeq   = space.clip(spaceMin, spaceMax)
+        .linExp(spaceMin, spaceMax, freqMin, freqMax)
+      //val freqSeq   = space.clip(spaceMin, spaceMax)
+      //  .linLin(spaceMin, spaceMax, freqMin, freqMax)
+      val oscSeq    = SinOsc.ar(freqSeq)
+      val oscSum    = Mix.Mono(oscSeq) / NumChannels(oscSeq)
+      PhysicalOut.ar(0, oscSum * "amp".kr(0.1))
+    }
+
+    val p = Proc[T]()
+    p.graph() = g
+    val pAttr = p.attr
+    pAttr.put("space", DoubleVector.newConst[T](vec.map(_.toDouble)))
+    val r = Runner(p)
+    r.run()
   }
 
   def printInfo(): Unit = {

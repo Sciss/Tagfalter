@@ -135,7 +135,11 @@ object DetectSpace {
     val now = scheduler.time
     scheduler.schedule(now + (TimeRef.SampleRate * 2).toLong) { implicit tx =>
       println("Start detect space")
-      detectSpaceImpl()
+      apply() { tx => _ =>
+        tx.afterCommit {
+          sys.exit()
+        }
+      }
     }
   }
 
@@ -304,7 +308,7 @@ object DetectSpace {
     framesWritten
   }
 
-  private def detectSpaceImpl()(implicit tx: T, universe: Universe[T], config: Config): Unit = {
+  def apply()(done: T => Vec[Float] => Unit)(implicit tx: T, universe: Universe[T], config: Config): Unit = {
     val p = Proc[T]()
     val dirAudio  = new File(userHome, "Documents/projects/Klangnetze/audio_work")
     val locAudio  = ArtifactLocation.newConst[T](dirAudio.toURI)
@@ -441,12 +445,14 @@ object DetectSpace {
               }
           }
           val posFound  = cmGroups.filter(_.size >= minIRPosRepeat)
-          val cmMean    = posFound.map(xs => xs.sum / xs.size) // .mean
+          val cmMean: Vec[Float] = posFound.map(xs => xs.sum / xs.size) // .mean
 
           println(s"Found ${cmMean.size} stable positions (cm):")
           println(cmMean.map(x => "%1.1f".format(x)).mkString(", "))
 
-          sys.exit()
+//          sys.exit()
+
+          done(tx)(cmMean)
         }
 
 //      case Runner.Running =>
