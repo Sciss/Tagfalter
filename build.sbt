@@ -42,6 +42,7 @@ lazy val root = project.in(file("."))
       "net.harawata"  %  "appdirs"                    % deps.main.appDirs,      // finding standard directories
       "org.rogach"    %% "scallop"                    % deps.main.scallop,      // command line option parsing
     ),
+    scalacOptions += "-deprecation",
     assembly / assemblyJarName := s"$baseName.jar",
     resolvers += Resolver.sonatypeRepo("snapshots"),  // needed for hid4java
     buildInfoPackage := "de.sciss.tagfalter",

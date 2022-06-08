@@ -15,7 +15,7 @@ package de.sciss.tagfalter
 
 import de.sciss.audiofile.{AudioFile, AudioFileSpec}
 import de.sciss.file._
-import de.sciss.lucre.DoubleVector
+import de.sciss.lucre.{DoubleObj, DoubleVector}
 import de.sciss.lucre.synth.{Server, Txn}
 import de.sciss.numbers.Implicits._
 import de.sciss.numbers.TwoPi
@@ -38,10 +38,26 @@ object Accelerate {
       val debug: Opt[Boolean] = toggle(default = Some(default.debug),
         descrYes = "Enter debug mode (verbosity, control files).",
       )
+      val accelMicAmp: Opt[Float] = opt(default = Some(default.accelMicAmp),
+        descr = s"Acceleration microphone boost, linear (default: ${default.accelMicAmp}).",
+      )
+      val accelSigAmp: Opt[Float] = opt(default = Some(default.accelSigAmp),
+        descr = s"Acceleration signal boost, linear (default: ${default.accelSigAmp}).",
+      )
+      val accelFactor: Opt[Float] = opt(default = Some(default.accelFactor),
+        descr = s"Acceleration factor (default: ${default.accelFactor}).",
+      )
+      val accelBufDur: Opt[Float] = opt(default = Some(default.accelBufDur),
+        descr = s"Acceleration buffer duration in seconds (default: ${default.accelBufDur}).",
+      )
 
       verify()
       implicit val config: Config = ConfigImpl(
-        debug     = debug(),
+        debug       = debug(),
+        accelMicAmp = accelMicAmp(),
+        accelSigAmp = accelSigAmp(),
+        accelFactor = accelFactor(),
+        accelBufDur = accelBufDur(),
       )
     }
     import p.config
@@ -51,14 +67,26 @@ object Accelerate {
   final val filterLen  = 512
 
   case class ConfigImpl(
-                       debug: Boolean = false,
+                       debug        : Boolean = false,
+                       accelMicAmp  : Float   = 10.0f,
+                       accelSigAmp  : Float   =  1.0f,
+                       accelBufDur  : Float   = 12.0f,
+                       accelFactor  : Float   = 32f,
                        ) extends Config
 
   trait Config {
-    def debug : Boolean
+    def debug       : Boolean
+    def accelMicAmp : Float
+    def accelSigAmp : Float
+    def accelBufDur : Float
+    def accelFactor : Float
   }
 
   def run()(implicit config: Config): Unit = {
+//    val bla = Runtime.getRuntime ().freeMemory ()
+//    println(s"FREE MEM : $bla")
+//    sys.exit()
+
 //    val nyquist = SR / 2
 //    val factor  = 32.0
 //    val rollOff = 0.8
@@ -76,25 +104,55 @@ object Accelerate {
   }
 
   def accelImpl[T <: Txn[T]](s: Server)(implicit tx: T, universe: Universe[T], config: Config): Unit = {
+    val nyquist   = SR / 2
+    val factor    = config.accelFactor // 32.0
+    val rollOff   = 0.8
+    val cutOff    = nyquist * rollOff / factor
+
+    // LPF test only:
+//    val g = SynthGraph {
+//      import de.sciss.synth.Import._
+//      import de.sciss.synth.Ops.stringToControl
+//      import de.sciss.synth.ugen.{DiskIn => _, PartConv => _, _}
+//      import de.sciss.synth.proc.graph._
+//
+//      val kernel  = Buffer("kernel")
+//      val in      = WhiteNoise.ar(0.2)
+//      val flt     = Convolution2.ar(in, kernel, frameSize = filterLen)
+//      val sig     = flt * "amp".kr(1.0)
+//      PhysicalOut.ar(0, sig)
+//    }
+
     val g = SynthGraph {
       import de.sciss.synth.Import._
-      import de.sciss.synth.Ops.stringToControl
+      import de.sciss.synth.proc.graph.Ops.stringToControl
       import de.sciss.synth.ugen.{DiskIn => _, PartConv => _, _}
       import de.sciss.synth.proc.graph._
 
-      val kernel  = Buffer("kernel")
-      val in      = WhiteNoise.ar(0.2)
-      val flt     = Convolution2.ar(in, kernel, frameSize = filterLen)
-      val sig     = flt * "amp".kr(1.0)
+      val kernel      = Buffer("kernel")
+      val in0         = PhysicalIn.ar
+      val in          = in0 * "mic-amp".kr(1.0)
+      val flt         = Convolution2.ar(in, kernel, frameSize = filterLen)
+
+      val accelFrames = (config.accelBufDur * SR).toInt
+      val bufAccel    = Buffer.Empty(accelFrames)
+      val sigWr       = flt
+      val indexWr     = Phasor.ar(speed = factor.reciprocal, lo = 0, hi = accelFrames)
+      BufWr.ar(sigWr, bufAccel, index = indexWr, loop = 1)
+
+      val sigRd       = PlayBuf.ar(1, bufAccel, loop = 1)
+      val sig         = sigRd * "amp".kr(1.0)
       PhysicalOut.ar(0, sig)
     }
 
     val p = Proc[T]()
-    p.graph() = g
-    val pAttr = p.attr
-    val arrKernel = makeLPF(2000.0)
-    val vecKernel = DoubleVector.newConst[T](arrKernel)
+    p.graph()     = g
+    val pAttr     = p.attr
+    val arrKernel = makeLPF(cutOff)
+    val vecKernel = DoubleVector.newConst[T](arrKernel.toIndexedSeq)
     pAttr.put("kernel", vecKernel)
+    pAttr.put("mic-amp" , DoubleObj.newConst[T](config.accelMicAmp))
+    pAttr.put("amp"     , DoubleObj.newConst[T](config.accelSigAmp))
     val r = Runner(p)
     r.run()
   }
