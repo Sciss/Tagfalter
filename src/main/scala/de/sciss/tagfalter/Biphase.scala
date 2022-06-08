@@ -14,14 +14,17 @@
 package de.sciss.tagfalter
 
 import de.sciss.lucre.Disposable
+import de.sciss.lucre.Txn.peer
 import de.sciss.lucre.synth.{Buffer, Server, Synth}
 import de.sciss.proc
-import de.sciss.proc.{AuralContext, SoundProcesses, TimeRef, Universe}
+import de.sciss.proc.{SoundProcesses, TimeRef, Universe}
 import de.sciss.synth.UGenSource.Vec
 import de.sciss.synth.proc.graph.impl.ActionResponder
 import de.sciss.synth.{GE, SynthGraph, addToHead}
 import de.sciss.tagfalter.Main.{SR, T}
 import org.rogach.scallop.{ScallopConf, ScallopOption => Opt}
+
+import scala.concurrent.stm.Ref
 
 object Biphase {
   case class ConfigImpl(
@@ -30,7 +33,8 @@ object Biphase {
                          encAmp   : Float   = 0.1f,
                          decAmp2  : Float   = 0.3f, // 0.5f,
                          decMicAmp: Float   = 20.0f, // 4.0f,
-                         program  : String  = "enc"
+                         program  : String  = "enc",
+                         wlanIf   : String  = "wlan0",
                        ) extends Config
 
   trait Config {
@@ -40,6 +44,7 @@ object Biphase {
     def decAmp2   : Float // why oh why?
     def decMicAmp : Float
     def program   : String
+    def wlanIf    : String
   }
 
   def main(args: Array[String]): Unit = {
@@ -67,6 +72,9 @@ object Biphase {
       val decMicAmp: Opt[Float] = opt(default = Some(default.decMicAmp),
         descr = s"Bit decoding microphone boost, linear (default: ${default.decMicAmp}).",
       )
+      val wlanIf: Opt[String] = opt(default = Some(default.wlanIf),
+        descr = s"WLAN interface (default: ${default.wlanIf}).",
+      )
       val program: Opt[String] = opt(default = Some(default.program),
         descr = s"Program, one of 'enc', 'dec', 'both' (default: ${default.program}).",
         validate = s => s == "enc" || s == "dec" || s == "both"
@@ -80,6 +88,7 @@ object Biphase {
         decAmp2   = decAmp2(),
         decMicAmp = decMicAmp(),
         program   = program(),
+        wlanIf    = wlanIf(),
       )
     }
     import p.config
@@ -88,7 +97,7 @@ object Biphase {
 
   def run()(implicit config: Config): Unit = {
     Main.boot { implicit tx => implicit universe => s =>
-      val mac   = Main.macAddress()
+      val mac   = Main.macAddress(config.wlanIf)
       val bytes = 0x48.toByte +: mac
       val sch = universe.scheduler
       sch.schedule(sch.time + TimeRef.SampleRate.toLong) { implicit tx =>
@@ -124,6 +133,12 @@ object Biphase {
   def send(s: Server, bytes: Array[Byte], freq: Freq = globalFreq)(done: T => Unit)
           (implicit tx: T, config: Config, universe: Universe[T]): Unit = {
     // val p = Proc[T]()
+
+    val st = bytes.iterator.map { b =>
+      val st = s"0x${((b >> 8) & 0xF).toHexString}${(b & 0xF).toHexString}"
+      st
+    } .mkString(" ")
+    println(st)
 
     val bits0: Array[Float] = bytes.flatMap { b =>
       val pay = Seq.tabulate(8) { i =>
@@ -297,9 +312,55 @@ object Biphase {
     val syn = Synth(s, g, nameHint = Some("bi-dec"))
     implicit val ac: proc.AuralContext[T] = universe.auralContext.getOrElse(sys.error("No aural context"))
 
+    val vrIdle    = Ref(true)
+    val vrStop    = Ref(false)
+    val vrCnt     = Ref(0)
+    val vrByte    = Ref(0)
+    val tsUpdate  = Ref(0L)
+    val timeOut   = (TimeRef.SampleRate * 0.5).toLong
+
+    def actPutBit(bit: Int)(implicit tx: T): Unit = {
+      println(s"put $bit")
+      vrByte.transform(x => (x << 1) | bit)
+      if (vrCnt() == 0) vrStop.set(true)
+    }
+
     object BitResponder extends ActionResponder[T]("emit", syn) {
-      override protected def execute(values: Vec[Double])(implicit tx: T): Unit =
-        tx.afterCommit { println(s"!bit: ${values.head.toInt}") }
+      override protected def execute(values: Vec[Double])(implicit tx: T): Unit = {
+        // check reset
+        val tsNow     = universe.scheduler.time
+        val tsBefore  = tsUpdate.swap(tsNow)
+        if (tsNow - tsBefore > timeOut) {
+          vrIdle.set(true)
+          vrStop.set(false)
+        }
+
+        val isOne = values.headOption.exists(_ > 0f)
+        if (isOne) {
+          // println("-1-")
+          if (vrStop()) {
+            // stop-bit received
+            val b   = vrByte()
+            val st  = s"0x${((b >> 8) & 0xF).toHexString}${(b & 0xF).toHexString}"
+            println(st)
+            vrStop.set(false)
+            vrIdle.set(true)
+          } else if (!vrIdle()) {
+            actPutBit(1)
+          }
+
+        } else { // is zero
+          // println("-0-")
+          if (vrIdle()) {
+            // start-bit received
+            vrIdle.set(false)
+            vrCnt .set(0)
+            vrByte.set(0)
+          } else if(!vrStop()) {
+            actPutBit(0)
+          }
+        }
+      }
     }
 
     BitResponder.add()
