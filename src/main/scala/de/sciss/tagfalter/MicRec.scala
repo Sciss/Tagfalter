@@ -27,7 +27,8 @@ object MicRec {
                          debug  : Boolean = false,
                          amp    : Float   = 20.0f, // 4.0f,
                          dur    : Float   = 10.0f,
-                         file   : File    = new File("output.aif")
+                         file   : File    = new File("output.aif"),
+                         click  : Boolean = false,
                        ) extends Config
 
   trait Config {
@@ -35,6 +36,7 @@ object MicRec {
     def amp     : Float
     def dur     : Float
     def file    : File
+    def click   : Boolean
   }
 
 
@@ -55,6 +57,9 @@ object MicRec {
       val dur: Opt[Float] = opt(default = Some(default.dur),
         descr = s"Duration in seconds (default: ${default.dur}).",
       )
+      val click: Opt[Boolean] = toggle(default = Some(default.click),
+        descrYes = "Emit intial direct impulse",
+      )
       val file: Opt[File] = opt(required = true,
         descr = "Output file (AIFF)",
       )
@@ -65,6 +70,7 @@ object MicRec {
         amp       = amp(),
         dur       = dur(),
         file      = file(),
+        click     = click(),
       )
     }
     import p.config
@@ -90,6 +96,9 @@ object MicRec {
       val buf = "buf".kr
       DiskOut.ar(buf, in)
       Line.kr(dur = dur, doneAction = freeSelf)
+      if (config.click) {
+        PhysicalOut.ar(0, Impulse.ar(0))
+      }
     }
 
     val buf = Buffer.diskOut(s)(config.file.getPath)

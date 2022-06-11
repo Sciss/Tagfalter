@@ -21,3 +21,7 @@ Assuming Jack runs at 1024 block size and 3 blocks, 48 kHz.
 Biphase tests:
 
     --biphase-f1a 5000 --biphase-f2a 6000 --biphase-f1b 7000 --biphase-f2b 8000 --dec-amp2 0.8
+
+Crypsis (outside):
+
+    --cryp-mod-freq 0.747 --cmp-thresh-in -10 --cryp-mic-amp 100 --cryp-speaker-amp 10

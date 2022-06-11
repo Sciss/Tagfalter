@@ -18,13 +18,13 @@ import de.sciss.file.userHome
 import de.sciss.lucre.{Artifact, ArtifactLocation, DoubleObj}
 import de.sciss.numbers.Implicits.floatNumberWrapper
 import de.sciss.proc.{AudioCue, Proc, Runner, Universe}
-import de.sciss.synth.UGenSource.Vec
 import de.sciss.synth.{GE, SynthGraph}
 import de.sciss.tagfalter.Main.{SR, T}
 import org.rogach.scallop.{ScallopConf, ScallopOption => Opt}
 
 import java.io.File
 
+// XXX TODO: attack should be resonated
 object Crypsis {
 
   case class ConfigImpl(
@@ -34,8 +34,8 @@ object Crypsis {
                          cmpThreshIn    : Float   = -15f,
                          cmpThreshOut   : Float   = -15f,
                          crypAchilles   : Float   = 0.98f,
-                         crypModFreq    : Float   = 5.6f,
-                         crypModDepth   : Float   = 0.7f,
+                         crypModFreq    : Float   = 0.5f, // 5.6f,
+//                         crypModDepth   : Float   = 0.7f,
                        ) extends Config
 
   trait Config {
@@ -46,7 +46,7 @@ object Crypsis {
     def cmpThreshOut    : Float
     def crypAchilles    : Float
     def crypModFreq     : Float
-    def crypModDepth    : Float
+//    def crypModDepth    : Float
   }
 
   def main(args: Array[String]): Unit = {
@@ -79,10 +79,10 @@ object Crypsis {
       val crypModFreq: Opt[Float] = opt(default = Some(default.crypModFreq),
         descr = s"Crypsis amplitude modulation frequency in Hz (default: ${default.crypModFreq}).",
       )
-      val crypModDepth: Opt[Float] = opt(default = Some(default.crypModDepth),
-        descr = s"Crypsis amplitude modulation depth 0 to 1 (default: ${default.crypModDepth}).",
-        validate = x => x >= 0.0 && x <= 1.0
-      )
+//      val crypModDepth: Opt[Float] = opt(default = Some(default.crypModDepth),
+//        descr = s"Crypsis amplitude modulation depth 0 to 1 (default: ${default.crypModDepth}).",
+//        validate = x => x >= 0.0 && x <= 1.0
+//      )
 
       verify()
       implicit val config: Config = ConfigImpl(
@@ -93,7 +93,7 @@ object Crypsis {
         cmpThreshOut    = cmpThreshOut(),
         crypAchilles    = crypAchilles(),
         crypModFreq     = crypModFreq(),
-        crypModDepth    = crypModDepth(),
+//        crypModDepth    = crypModDepth(),
       )
     }
     import p.config
@@ -106,6 +106,12 @@ object Crypsis {
     }
   }
 
+  final val LATENCY_MIN = 4096  // minimum without mic-to-speaker spacing
+//  final val LATENCY_ADD = 141   // 1m spacing
+  final val LATENCY_ACOUSTIC_SEC = 0.003 // 1m spacing
+  final val LAG_TIME_UP_SEC = 0.1
+  final val LAG_TIME_DN_SEC = 0.3
+
   def apply(/*s: Server*/)(implicit tx: T, config: Config, universe: Universe[T]): Unit = {
     val p = Proc[T]()
     val dirAudio  = new File(userHome, "Documents/projects/Klangnetze/audio_work")
@@ -116,13 +122,41 @@ object Crypsis {
 
     val g = SynthGraph {
       import de.sciss.synth.Import._
-      import de.sciss.synth.proc.graph._
-      import de.sciss.synth.ugen.{DiskIn => _, PartConv => _, _}
-//      import de.sciss.synth.Ops.stringToControl
       import de.sciss.synth.proc.graph.Ops.stringToControl
+      import de.sciss.synth.proc.graph._
+      import de.sciss.synth.ugen.{DiskIn => _, DiskOut => _, PartConv => _, _}
       val in0       = PhysicalIn.ar
       val in1       = in0 * "mic-amp".kr(1.0)
-      val in        = HPF.ar(in1, 100)
+      val in2       = in1 // HPF.ar(in1, 100)
+//      val latencyFr =
+
+      val modFreq         = "mod-freq".kr(5.0)
+      val modPeriod       = 0.5 / modFreq
+      val pulseWidth      = (0.5 * modPeriod - (LATENCY_ACOUSTIC_SEC /**2*/ + (LAG_TIME_UP_SEC + LAG_TIME_DN_SEC) * 0.5)) / modPeriod // e.g.  0.44
+      /*
+
+       iphase: initial phase offset in cycles ( 0..1 ). If you think of a buffer of one cycle of the waveform, this is
+       the starting offset into this buffer. Hence, an iphase of 0.25 means that you will hear the first impulse after
+       0.75 periods! If you prefer to specify the perceived delay instead, you could use an iphase of -0.25 + 1
+       which is more intuitive. Note that the phase is not automatically wrapped into the range of 0..1 , so
+       putting an iphase of -0.25 currently results in a strange initial signal which only stabilizes to the correct
+       behaviour after one period! (init-time only)
+
+       */
+      val LATENCY_TOTAL   = -(LATENCY_MIN.toDouble / SR + LATENCY_ACOUSTIC_SEC) + (LAG_TIME_UP_SEC + LAG_TIME_DN_SEC) * 0.7
+//      println(s"LATENCY_TOTAL $LATENCY_TOTAL")
+      val pulseInOutDly   = LATENCY_TOTAL / modPeriod // periods
+      val pulseInPhase    = 0.0
+      val pulseOutPhase   = (pulseInOutDly + 0.5).wrap(0.0, 1.0)
+      val pulseIn         = LFPulse.ar(modFreq, iphase = pulseInPhase   , width = pulseWidth)
+      val pulseOut        = LFPulse.ar(modFreq, iphase = pulseOutPhase  , width = pulseWidth)
+      val pulseInL        = Lag2UD.ar(pulseIn , LAG_TIME_UP_SEC, LAG_TIME_DN_SEC)
+      val pulseOutL       = Lag2UD.ar(pulseOut, LAG_TIME_UP_SEC, LAG_TIME_DN_SEC)
+
+      val in        = in2 * pulseInL
+
+      //      Lag.ar()
+
       if (config.debug) Amplitude.ar(in).ampDb.poll(4, "amp-in")
       val cmpThreshIn = "cmp-thresh-in".kr(-24.dbAmp)
 //      if (config.debug) cmpThreshIn.poll(0, "cmpThreshIn")
@@ -140,7 +174,7 @@ object Crypsis {
       val cmpRatioOut = 1.0/8 // "cmp-ratio-in".kr(1.0/8)
       val cmpOut    = Compander.ar(fuzzy, fuzzy, thresh = cmpThreshOut, ratioBelow = 1.0, ratioAbove = cmpRatioOut,
         attack = 0.01, release = 10.0)
-      val dlyTime   = 10.0
+      val dlyTime   = 7.5 // 10.0
       val dly       = DelayN.ar(cmpOut, dlyTime, dlyTime)
 
       def mkAchil(in: GE): GE = {
@@ -169,12 +203,20 @@ object Crypsis {
         read
       }
 
-      val achil     = mkAchil(dly)
-      val modFreq   = "mod-freq".kr(5.0)
-      val modDepth  = "mod-freq".kr(0.8)
-      val mod       = achil * SinOsc.kr(modFreq).mulAdd(modDepth * 0.5, 1.0 - modDepth * 0.5)
+      val achil     = dly // mkAchil(dly)
+//      val modDepth  = "mod-freq".kr(0.8)
+      val mod       = achil * pulseOutL // SinOsc.kr(modFreq).mulAdd(modDepth * 0.5, 1.0 - modDepth * 0.5)
       val sig       = mod * "amp".kr(1)
       PhysicalOut.ar(0, sig)
+
+      if (config.debug) {
+        DiskOut.ar("rec", Seq(
+          pulseIn,
+          pulseOut,
+          pulseInL,
+          pulseOutL,
+        ))
+      }
     }
 
     p.graph() = g
@@ -186,8 +228,13 @@ object Crypsis {
     pAttr.put("cmp-thresh-out", DoubleObj.newConst[T](config.cmpThreshOut .dbAmp))
     pAttr.put("achilles"      , DoubleObj.newConst[T](config.crypAchilles))
     pAttr.put("mod-freq"      , DoubleObj.newConst[T](config.crypModFreq))
-    pAttr.put("mod-depth"     , DoubleObj.newConst[T](config.crypModDepth))
+//    pAttr.put("mod-depth"     , DoubleObj.newConst[T](config.crypModDepth))
     pAttr.put("mic-amp"       , DoubleObj.newConst[T](config.crypMicAmp))
+
+    if (config.debug) {
+      val artRec = Artifact[T](locAudio, Artifact.Child("_killme.irc"))
+      pAttr.put("rec", artRec)
+    }
 
     val r = Runner(p)
     r.run()
