@@ -13,15 +13,13 @@
 
 package de.sciss.tagfalter
 
-import de.sciss.lucre.{DoubleVector, Workspace}
 import de.sciss.lucre.synth.{InMemory, Server}
+import de.sciss.lucre.{DoubleVector, Workspace}
 import de.sciss.proc.{AuralSystem, Proc, Runner, SoundProcesses, Universe}
 import de.sciss.synth.UGenSource.Vec
 import de.sciss.synth.{Client, SynthGraph}
-import de.sciss.tagfalter.DetectSpace.{Config, detectSpace}
 
 import scala.collection.Seq
-import scala.util.control.NonFatal
 
 object Main {
   type T = InMemory.Txn
@@ -43,8 +41,8 @@ object Main {
   def run()(implicit config: Config): Unit = {
     boot { implicit tx => implicit universe => s =>
       implicit val cfgDetect: DetectSpace.Config = DetectSpace.ConfigImpl()
-      DetectSpace(){ implicit tx => cmMean =>
-        spaceTimbre(cmMean)
+      DetectSpace(){ implicit tx => res =>
+        spaceTimbre(res.posCm)
       }
     }
   }
@@ -62,7 +60,7 @@ object Main {
       spaceHi.poll(0, "space-hi")
       val spaceMin  =    60.0 // 10.0
       val spaceMax  = 12000.0 // 2000.0
-      val freqMin   = 150.0 // 250.0 // 150.0
+      val freqMin   =   150.0 // 250.0 // 150.0
       val freqMax   = 15000.0
       val freqSeq   = space.clip(spaceMin, spaceMax)
         .linExp(spaceMin, spaceMax, freqMin, freqMax)

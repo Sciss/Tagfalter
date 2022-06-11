@@ -61,6 +61,8 @@ object DetectSpace {
     def maxSpacePos     : Int
   }
 
+  case class Result(posCm: Vec[Float])
+
   def main(args: Array[String]): Unit = {
     Main.printInfo()
 
@@ -308,7 +310,7 @@ object DetectSpace {
     framesWritten
   }
 
-  def apply()(done: T => Vec[Float] => Unit)(implicit tx: T, universe: Universe[T], config: Config): Unit = {
+  def apply()(done: T => Result => Unit)(implicit tx: T, universe: Universe[T], config: Config): Unit = {
     val p = Proc[T]()
     val dirAudio  = new File(userHome, "Documents/projects/Klangnetze/audio_work")
     val locAudio  = ArtifactLocation.newConst[T](dirAudio.toURI)
@@ -452,7 +454,7 @@ object DetectSpace {
 
 //          sys.exit()
 
-          done(tx)(cmMean)
+          done(tx)(Result(cmMean))
         }
 
 //      case Runner.Running =>
