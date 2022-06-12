@@ -46,7 +46,7 @@ object DetectSpace {
 
   case class ConfigImpl(
                      debug          : Boolean = false,
-                     noise          : Boolean = false,
+//                     noise          : Boolean = false,
                      unknownLatency : Int     = -64, // frames
                      spaceCorrection: Float   = -26f, // cm
                      minSpacePos    : Int     =  6,
@@ -55,7 +55,7 @@ object DetectSpace {
 
   trait Config {
     def debug           : Boolean
-    def noise           : Boolean
+//    def noise           : Boolean
     def unknownLatency  : Int
     def spaceCorrection: Float
     def minSpacePos     : Int
@@ -80,9 +80,9 @@ object DetectSpace {
       val debug: Opt[Boolean] = toggle(default = Some(default.debug),
         descrYes = "Enter debug mode (verbosity, control files).",
       )
-      val noise: Opt[Boolean] = toggle(default = Some(default.noise),
-        descrYes = "Add background noise sound (testing).",
-      )
+//      val noise: Opt[Boolean] = toggle(default = Some(default.noise),
+//        descrYes = "Add background noise sound (testing).",
+//      )
       val minSpacePos: Opt[Int] = opt(default = Some(default.minSpacePos),
         descr = s"Minimum number of spatial positions, center clipping will be adjusted (default: ${default.minSpacePos}).",
         validate = _ > 1
@@ -99,7 +99,7 @@ object DetectSpace {
       implicit val config: Config = ConfigImpl(
         debug           = debug(),
         unknownLatency  = unknownLatency(),
-        noise           = noise(),
+//        noise           = noise(),
         spaceCorrection = spaceCorrection(),
         minSpacePos     = minSpacePos(),
         maxSpacePos     = maxSpacePos(),
@@ -118,23 +118,23 @@ object DetectSpace {
   def runBooted(/*s: Server*/)(implicit tx: T, universe: Universe[T], config: Config): Unit = {
     val s = universe.auralContext.get.server
 
-    if (config.noise) {
-      // Note: this problem has been reduced to the use of DiskIn over Buffer/PlayBuf
-      // (SoundProcesses issue #117)
-      //
-      // (NOT:) the Pi HAT sound card "pauses" the alsa driver, or something like that,
-      // when it sees a zero signal. When it "resumes", we get random latencies.
-      // To avoid that, we add a permanent noise output.
-      println("Start background noise")
-      val gNoise = SynthGraph {
-        import de.sciss.synth.Import._
-        import de.sciss.synth.ugen.{DiskIn => _, PartConv => _, _}
-        val sig = WhiteNoise.ar(4.0e-4) // -68 dB -- minimum volume necessary to unblock audio driver
-        if (config.debug) sig.poll(0, "NOISE")
-        PhysicalOut.ar(0, sig)
-      }
-      /*val synNoise =*/ Synth.play(gNoise, nameHint = Some("noise"))(s)
-    }
+//    if (config.noise) {
+//      // Note: this problem has been reduced to the use of DiskIn over Buffer/PlayBuf
+//      // (SoundProcesses issue #117)
+//      //
+//      // (NOT:) the Pi HAT sound card "pauses" the alsa driver, or something like that,
+//      // when it sees a zero signal. When it "resumes", we get random latencies.
+//      // To avoid that, we add a permanent noise output.
+//      println("Start background noise")
+//      val gNoise = SynthGraph {
+//        import de.sciss.synth.Import._
+//        import de.sciss.synth.ugen.{DiskIn => _, PartConv => _, _}
+//        val sig = WhiteNoise.ar(4.0e-4) // -68 dB -- minimum volume necessary to unblock audio driver
+//        if (config.debug) sig.poll(0, "NOISE")
+//        PhysicalOut.ar(0, sig)
+//      }
+//      /*val synNoise =*/ Synth.play(gNoise, nameHint = Some("noise"))(s)
+//    }
 
     import universe.scheduler
     val now = scheduler.time
@@ -452,10 +452,16 @@ object DetectSpace {
               }
           }
           val posFound  = cmGroups.filter(_.size >= minIRPosRepeat)
-          val cmMean: Vec[Float] = posFound.map(xs => xs.sum / xs.size) // .mean
+          val cmMean0: Vec[Float] = posFound.map(xs => xs.sum / xs.size) // .mean
+          // make sure we have at least two values
+          val cmMean: Vec[Float] = cmMean0 match {
+            case Vec()        => Vec(123.4f, 492.1f)
+            case Vec(single)  => Vec(single, single * 1.5f)
+            case _            => cmMean0
+          }
 
-          log.info(s"Found ${cmMean.size} stable positions (cm):")
-          log.info(cmMean.map(x => "%1.1f".format(x)).mkString(", "))
+          log.info(s"Found ${cmMean0.size} stable positions (cm):")
+          log.info(cmMean0.map(x => "%1.1f".format(x)).mkString(", "))
 
 //          sys.exit()
 

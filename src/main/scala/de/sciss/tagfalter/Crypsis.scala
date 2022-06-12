@@ -29,6 +29,7 @@ object Crypsis {
 
   case class ConfigImpl(
                          debug          : Boolean =  false,
+                         debugRec       : Boolean =  false,
                          crypMicAmp     : Float   = 40.0f, // 4.0f,
                          crypSpeakerAmp : Float   = 12.0f,
                          cmpThreshIn    : Float   =  10f,
@@ -40,6 +41,7 @@ object Crypsis {
 
   trait Config {
     def debug           : Boolean
+    def debugRec        : Boolean
     def crypMicAmp      : Float
     def crypSpeakerAmp  : Float
     def cmpThreshIn     : Float
@@ -58,7 +60,10 @@ object Crypsis {
       private val default = ConfigImpl()
 
       val debug: Opt[Boolean] = toggle(default = Some(default.debug),
-        descrYes = "Enter debug mode (verbosity, control files).",
+        descrYes = "Enter debug mode (verbosity).",
+      )
+      val debugRec: Opt[Boolean] = toggle(default = Some(default.debugRec),
+        descrYes = "Enter debug mode (control files).",
       )
       val crypMicAmp: Opt[Float] = opt(default = Some(default.crypMicAmp),
         descr = s"Crypsis microphone boost, decibels (default: ${default.crypMicAmp}).",
@@ -87,6 +92,7 @@ object Crypsis {
       verify()
       implicit val config: Config = ConfigImpl(
         debug           = debug(),
+        debugRec        = debugRec(),
         crypMicAmp      = crypMicAmp(),
         crypSpeakerAmp  = crypSpeakerAmp(),
         cmpThreshIn     = cmpThreshIn(),
@@ -165,7 +171,7 @@ object Crypsis {
       //      Lag.ar()
 
       if (config.debug) Amplitude.ar(in).ampDb.poll(4, "amp-in")
-      val cmpThreshIn = "cmp-thresh-in".kr(-24.dbAmp)
+      val cmpThreshIn = "cmp-thresh-in".kr((-24).dbAmp)
 //      if (config.debug) cmpThreshIn.poll(0, "cmpThreshIn")
       val cmpRatioIn  = 1.0/8 // "cmp-ratio-in".kr(1.0/8)
       val cmpIn     = Compander.ar(in, in, thresh = cmpThreshIn, ratioBelow = 1.0, ratioAbove = cmpRatioIn,
@@ -176,7 +182,7 @@ object Crypsis {
       val fuzzyAmp  = 2.0 / fftSize
       val fuzzy     = PartConv.ar("noise", sigIn, fftSize = fftSize) * fuzzyAmp
       if (config.debug) Amplitude.ar(fuzzy).ampDb.poll(4, "amp-out")
-      val cmpThreshOut = "cmp-thresh-out".kr(-24.dbAmp)
+      val cmpThreshOut = "cmp-thresh-out".kr((-24).dbAmp)
       if (config.debug) cmpThreshOut.poll(0, "cmpThreshOut")
       val cmpRatioOut = 1.0/8 // "cmp-ratio-in".kr(1.0/8)
       val cmpOut    = Compander.ar(fuzzy, fuzzy, thresh = cmpThreshOut, ratioBelow = 1.0, ratioAbove = cmpRatioOut,
@@ -217,10 +223,10 @@ object Crypsis {
       PhysicalOut.ar(0, sig)
 
       val gate      = "gate".kr(1)
-      val done      = !gate & A2K.kr(pulseOutL) < (-40.dbAmp)
+      val done      = !gate & A2K.kr(pulseOutL) < (-40).dbAmp
       DoneSelf(done)
 
-      if (config.debug) {
+      if (config.debugRec) {
         DiskOut.ar("rec", Seq(
           pulseIn,
           pulseOut,
@@ -235,15 +241,15 @@ object Crypsis {
     pAttr.put("noise"         , cueNoise)
     pAttr.put("amp"           , DoubleObj.newConst[T](config.crypSpeakerAmp .dbAmp))
     pAttr.put("mic-amp"       , DoubleObj.newConst[T](config.crypMicAmp     .dbAmp))
-    pAttr.put("cmp-thresh-in" , DoubleObj.newConst[T](-config.cmpThreshIn   .dbAmp))
-    pAttr.put("cmp-thresh-out", DoubleObj.newConst[T](-config.cmpThreshOut  .dbAmp))
+    pAttr.put("cmp-thresh-in" , DoubleObj.newConst[T]((-config.cmpThreshIn ).dbAmp))
+    pAttr.put("cmp-thresh-out", DoubleObj.newConst[T]((-config.cmpThreshOut).dbAmp))
     pAttr.put("achilles"      , DoubleObj.newConst[T](config.crypAchilles))
     pAttr.put("mod-freq"      , DoubleObj.newConst[T](config.crypModFreq))
 //    pAttr.put("mod-depth"     , DoubleObj.newConst[T](config.crypModDepth))
     val vrGate = BooleanObj.newVar[T](true)
     pAttr.put("gate"          , vrGate)
 
-    if (config.debug) {
+    if (config.debugRec) {
       val artRec = Artifact[T](locAudio, Artifact.Child("_killme.irc"))
       pAttr.put("rec", artRec)
     }

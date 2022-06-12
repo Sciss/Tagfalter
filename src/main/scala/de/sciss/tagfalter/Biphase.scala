@@ -15,7 +15,8 @@ package de.sciss.tagfalter
 
 import de.sciss.lucre.Disposable
 import de.sciss.lucre.Txn.peer
-import de.sciss.lucre.synth.{Buffer, Server, Synth}
+import de.sciss.lucre.synth.{Buffer, Synth}
+import de.sciss.numbers.Implicits.floatNumberWrapper
 import de.sciss.proc
 import de.sciss.proc.{SoundProcesses, TimeRef, Universe}
 import de.sciss.synth.UGenSource.Vec
@@ -28,12 +29,12 @@ import scala.concurrent.stm.Ref
 
 object Biphase {
   case class ConfigImpl(
-                         bitPeriod  : Float   = 120.0f,
                          debug      : Boolean = false,
-                         encAmp     : Float   = 0.1f,
-                         decAmp2    : Float   = 0.3f, // 0.5f,
-                         decMicAmp  : Float   = 20.0f, // 4.0f,
                          program    : String  = "enc",
+                         bitPeriod  : Float   = 120.0f,
+                         encAmp     : Float   = -20f,
+                         decAmp2    : Float   = -10f, // 0.5f,
+                         decMicAmp  : Float   = 30f,  // 4.0f,
                          wlanIf     : String  = "wlan0",
                          biphaseF1a : Float    = f1a,
                          biphaseF1b : Float    = f1b,
@@ -47,7 +48,7 @@ object Biphase {
     def encAmp    : Float
     def decAmp2   : Float // why oh why?
     def decMicAmp : Float
-    def program   : String
+//    def program   : String
     def wlanIf    : String
     def biphaseF1a: Float
     def biphaseF1b: Float
@@ -67,27 +68,27 @@ object Biphase {
       printedName = "Tagfalter - CalibrateGoertzel"
       private val default = ConfigImpl()
 
-      val bitPeriod: Opt[Float] = opt(default = Some(default.bitPeriod),
-        descr = s"Bit encoding period in milliseconds (default: ${default.bitPeriod}).",
-      )
       val debug: Opt[Boolean] = toggle(default = Some(default.debug),
         descrYes = "Enter debug mode (verbosity, control files).",
-      )
-      val encAmp: Opt[Float] = opt(default = Some(default.encAmp),
-        descr = s"Bit encoding amplitude, linear (default: ${default.encAmp}).",
-      )
-      val decAmp2: Opt[Float] = opt(default = Some(default.decAmp2),
-        descr = s"Bit decoding amplitude for second frequency, linear (default: ${default.decAmp2}).",
-      )
-      val decMicAmp: Opt[Float] = opt(default = Some(default.decMicAmp),
-        descr = s"Bit decoding microphone boost, linear (default: ${default.decMicAmp}).",
-      )
-      val wlanIf: Opt[String] = opt(default = Some(default.wlanIf),
-        descr = s"WLAN interface (default: ${default.wlanIf}).",
       )
       val program: Opt[String] = opt(default = Some(default.program),
         descr = s"Program, one of 'enc', 'dec', 'both' (default: ${default.program}).",
         validate = s => s == "enc" || s == "dec" || s == "both"
+      )
+      val bitPeriod: Opt[Float] = opt(default = Some(default.bitPeriod),
+        descr = s"Bit encoding period in milliseconds (default: ${default.bitPeriod}).",
+      )
+      val encAmp: Opt[Float] = opt(default = Some(default.encAmp),
+        descr = s"Bit encoding amplitude, decibels (default: ${default.encAmp}).",
+      )
+      val decAmp2: Opt[Float] = opt(default = Some(default.decAmp2),
+        descr = s"Bit decoding amplitude for second frequency, decibels (default: ${default.decAmp2}).",
+      )
+      val decMicAmp: Opt[Float] = opt(default = Some(default.decMicAmp),
+        descr = s"Bit decoding microphone boost, decibels (default: ${default.decMicAmp}).",
+      )
+      val wlanIf: Opt[String] = opt(default = Some(default.wlanIf),
+        descr = s"WLAN interface (default: ${default.wlanIf}).",
       )
       val biphaseF1a: Opt[Float] = opt(default = Some(default.biphaseF1a),
         descr = s"Codec frequency 1a, linear (default: ${default.biphaseF1a}).",
@@ -103,13 +104,13 @@ object Biphase {
       )
 
       verify()
-      implicit val config: Config = ConfigImpl(
-        bitPeriod   = bitPeriod(),
+      implicit val config: ConfigImpl = ConfigImpl(
         debug       = debug(),
+        program     = program(),
+        bitPeriod   = bitPeriod(),
         encAmp      = encAmp(),
         decAmp2     = decAmp2(),
         decMicAmp   = decMicAmp(),
-        program     = program(),
         wlanIf      = wlanIf(),
         biphaseF1a  = biphaseF1a(),
         biphaseF1b  = biphaseF1b(),
@@ -121,7 +122,7 @@ object Biphase {
     run()
   }
 
-  def run()(implicit config: Config): Unit = {
+  def run()(implicit config: ConfigImpl): Unit = {
     Main.boot { implicit tx => implicit universe => s =>
       val mac   = Main.macAddress(config.wlanIf)
       val bytes = 0x48.toByte +: mac
@@ -249,7 +250,7 @@ object Biphase {
     val syn = Synth.play(g, nameHint = Some("bi-enc"))(s,
       args = Seq(
         "bit-buf" -> bitBuf.id,
-        "amp"     -> config.encAmp,
+        "amp"     -> config.encAmp  .dbAmp,
         "f1a"     -> freq.f1a,
         "f1b"     -> freq.f1b,
         "f2a"     -> freq.f2a,
@@ -302,7 +303,7 @@ object Biphase {
       val gMedian   = 5 // 9
 
       val gGain1 = 1.0f
-      val gGain2 = config.decAmp2 // 0.25
+      val gGain2 = config.decAmp2.dbAmp // 0.25
 
       val g1        = Goertzel.kr(in, gLen, freq = f1, hop = gHop)
       val g2        = Goertzel.kr(in, gLen, freq = f2, hop = gHop)
@@ -311,7 +312,7 @@ object Biphase {
       val g1M       = Median.kr(g1M0, length = gMedian)
       val g2M       = Median.kr(g2M0, length = gMedian)
 
-      val threshAbs = "thresh".kr(-48.dbAmp)
+      val threshAbs = "thresh".kr((-48).dbAmp)
       //val threshSq  = threshAbs.squared
 
       //threshSq.poll(0, "threshSq")
@@ -421,7 +422,9 @@ object Biphase {
       BitResponder.dispose()
     }
 
-    syn.play(s, args = Seq("mic-amp" -> config.decMicAmp), addAction = addToHead, dependencies = Nil)
+    syn.play(s, args = Seq(
+      "mic-amp" -> config.decMicAmp.dbAmp,
+    ), addAction = addToHead, dependencies = Nil)
 
     new Receive {
       override def dispose()(implicit tx: T): Unit = {

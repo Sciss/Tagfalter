@@ -36,20 +36,20 @@ object OscNode {
       private val default = ConfigImpl()
 
       val dumpOsc: Opt[Boolean] = toggle(default = Some(default.dumpOsc),
-        descrYes = "Dump incoming messages to console",
+        descrYes = "Dump incoming OSC messages to console",
       )
       val oscPort: Opt[Int] = opt(default = Some(default.oscPort),
-        descr = s"UDP port (default: ${default.oscPort}).",
+        descr = s"OSC UDP port (default: ${default.oscPort}).",
       )
       val useIp: Opt[Boolean] = toggle(default = Some(default.useIp),
-        descrYes = "Receive on network IP address instead of loopback",
+        descrYes = "Receive OSC on network IP address instead of loopback",
       )
 
       verify()
       implicit val config: Config = ConfigImpl(
-        dumpOsc  = dumpOsc(),
-        oscPort  = oscPort(),
-        useIp = useIp(),
+        dumpOsc   = dumpOsc(),
+        oscPort   = oscPort(),
+        useIp     = useIp(),
       )
     }
     import p.config
@@ -62,14 +62,19 @@ object OscNode {
     if (!config.useIp) oscCfg.localIsLoopback = true
     val r = osc.UDP.Receiver(oscCfg)
     if (config.dumpOsc) r.dump()
-    r.action = {
-      case (osc.Message("/state", code), _) =>
-        println(s"OSC: state is $code")
-        // XXX TODO: state 0 is the one we need to react to
-        ()
+    r.action = { (p, addr) =>
+      p match {
+        case osc.Message("/state", code) =>
+          println(s"OSC: state is $code")
+          // XXX TODO: state 0 is the one we need to react to
+          ()
 
-      case (msg, addr) =>
-        println(s"From $addr got $msg")
+        case osc.Message("/quit") =>
+          sys.exit()
+
+        case _ =>
+          println(s"From $addr got $p")
+      }
     }
     r.connect()
   }
