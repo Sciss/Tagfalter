@@ -126,6 +126,10 @@ object Crypsis {
   }
 
   def apply(/*s: Server*/)(implicit tx: T, config: Config, universe: Universe[T]): Result = {
+    applyWith(modFreq = config.crypModFreq)
+  }
+
+  def applyWith(modFreq: Float)(implicit tx: T, config: Config, universe: Universe[T]): Result = {
     val p = Proc[T]()
     val dirAudio  = new File(userHome, "Documents/projects/Klangnetze/audio_work")
     val locAudio  = ArtifactLocation.newConst[T](dirAudio.toURI)
@@ -244,7 +248,7 @@ object Crypsis {
     pAttr.put("cmp-thresh-in" , DoubleObj.newConst[T]((-config.cmpThreshIn ).dbAmp))
     pAttr.put("cmp-thresh-out", DoubleObj.newConst[T]((-config.cmpThreshOut).dbAmp))
     pAttr.put("achilles"      , DoubleObj.newConst[T](config.crypAchilles))
-    pAttr.put("mod-freq"      , DoubleObj.newConst[T](config.crypModFreq))
+    pAttr.put("mod-freq"      , DoubleObj.newConst[T](modFreq))
 //    pAttr.put("mod-depth"     , DoubleObj.newConst[T](config.crypModDepth))
     val vrGate = BooleanObj.newVar[T](true)
     pAttr.put("gate"          , vrGate)
