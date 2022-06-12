@@ -15,6 +15,7 @@ package de.sciss.tagfalter
 
 import de.sciss.audiofile.{AudioFile, AudioFileSpec}
 import de.sciss.file.userHome
+import de.sciss.log.Level
 import de.sciss.lucre.Txn.{peer => peerTx}
 import de.sciss.lucre.synth.{Server, Synth}
 import de.sciss.lucre.{Artifact, ArtifactLocation, DoubleVector}
@@ -22,7 +23,7 @@ import de.sciss.numbers.Implicits._
 import de.sciss.proc.{AudioCue, Proc, Runner, TimeRef, Universe}
 import de.sciss.synth.SynthGraph
 import de.sciss.synth.UGenSource.Vec
-import de.sciss.tagfalter.Main.{SR, T}
+import de.sciss.tagfalter.Main.{SR, T, log}
 import org.rogach.scallop.{ScallopConf, ScallopOption => Opt}
 
 import java.io.File
@@ -110,11 +111,13 @@ object DetectSpace {
 
   def run()(implicit config: Config): Unit = {
     Main.boot { implicit tx => implicit universe => s =>
-      detectSpace(s)
+      runBooted()
     }
   }
 
-  def detectSpace(s: Server)(implicit tx: T, universe: Universe[T], config: Config): Unit = {
+  def runBooted(/*s: Server*/)(implicit tx: T, universe: Universe[T], config: Config): Unit = {
+    val s = universe.auralContext.get.server
+
     if (config.noise) {
       // Note: this problem has been reduced to the use of DiskIn over Buffer/PlayBuf
       // (SoundProcesses issue #117)
@@ -365,13 +368,13 @@ object DetectSpace {
     val r = Runner(p)
 
     def nextRun()(implicit tx: T): Unit = {
-      println(s"Running sweep rec (iteration ${RunIdx()})")
+      log.info(s"Running sweep rec (iteration ${RunIdx()})")
       r.run()
     }
 
     r.react { implicit tx => {
       case Runner.Done =>
-        println("(rec done)")
+        log.debug("(rec done)")
 
         // the first one is still badly cropped
         val runIdx = RunIdx()
@@ -392,12 +395,12 @@ object DetectSpace {
                 // move up and down in 3 dB steps
                 if (n < config.minSpacePos && t > threshExcessMin) {
                   val t1 = t * 0.71f
-                  println(s"-- lowering threshold to $t1")
+                  log.debug(s"-- lowering threshold to $t1")
                   ThreshExcess() = t1
                   tryDetect(attemptsLeft = attemptsLeft - 1)
                 } else if (n > config.maxSpacePos && t < threshExcessMax) {
                   val t1 = t * 1.413f
-                  println(s"-- raising threshold to $t1")
+                  log.debug(s"-- raising threshold to $t1")
                   ThreshExcess() = t1
                   tryDetect(attemptsLeft = attemptsLeft - 1)
                 } else {
@@ -410,12 +413,14 @@ object DetectSpace {
           }
           numPosSq(runIdx - 1) = numPos
 
-          val posBufT = posBuf.take(numPos)
-          val cm      = posBufT.map(x => x.toFloat * frameToCM + config.spaceCorrection)
-          val cmS     = cm.map(x => "%1.1f".format(x))
+          if (log.level <= Level.Debug) {
+            val posBufT = posBuf.take(numPos)
+            val cm      = posBufT.map(x => x.toFloat * frameToCM + config.spaceCorrection)
+            val cmS     = cm.map(x => "%1.1f".format(x))
 
-          println(posBufT .mkString("Pos (smp): ", ", ", ""))
-          println(cmS     .mkString("Pos (cm ): ", ", ", ""))
+            log.debug(posBufT .mkString("Pos (smp): ", ", ", ""))
+            log.debug(cmS     .mkString("Pos (cm ): ", ", ", ""))
+          }
 
           if (config.debug) {
             val afOut = AudioFile.openWrite(new File(dirAudio, s"_killme$runIdx.aif"),
@@ -449,8 +454,8 @@ object DetectSpace {
           val posFound  = cmGroups.filter(_.size >= minIRPosRepeat)
           val cmMean: Vec[Float] = posFound.map(xs => xs.sum / xs.size) // .mean
 
-          println(s"Found ${cmMean.size} stable positions (cm):")
-          println(cmMean.map(x => "%1.1f".format(x)).mkString(", "))
+          log.info(s"Found ${cmMean.size} stable positions (cm):")
+          log.info(cmMean.map(x => "%1.1f".format(x)).mkString(", "))
 
 //          sys.exit()
 
@@ -468,7 +473,7 @@ object DetectSpace {
 //        } .start()
 
       case state =>
-        println(s"(rec $state)")
+        log.debug(s"(rec $state)")
     }}
 
      nextRun()

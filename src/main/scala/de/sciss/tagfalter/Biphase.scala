@@ -21,7 +21,7 @@ import de.sciss.proc.{SoundProcesses, TimeRef, Universe}
 import de.sciss.synth.UGenSource.Vec
 import de.sciss.synth.proc.graph.impl.ActionResponder
 import de.sciss.synth.{GE, SynthGraph, addToHead}
-import de.sciss.tagfalter.Main.{SR, T}
+import de.sciss.tagfalter.Main.{SR, T, log}
 import org.rogach.scallop.{ScallopConf, ScallopOption => Opt}
 
 import scala.concurrent.stm.Ref
@@ -54,6 +54,8 @@ object Biphase {
     def biphaseF2a: Float
     def biphaseF2b: Float
   }
+
+  final val CMD_HOLD_ON = 0x80.toByte
 
   def main(args: Array[String]): Unit = {
     Main.printInfo()
@@ -131,20 +133,24 @@ object Biphase {
           f2a = config.biphaseF2a, f2b = config.biphaseF2b
         )
         if (config.program == "dec" || config.program == "both") {
-          receive(s) { implicit tx => byte =>
-            tx.afterCommit { println(s"dec: ${byte.toChar}") }
+          receive(/*s*/) { implicit tx => byte =>
+            tx.afterCommit {
+              val st = s"0x${((byte >> 8) & 0xF).toHexString}${(byte & 0xF).toHexString}"
+              println(st)
+              //  println(s"dec: ${byte.toChar}")
+            }
           }
         }
         if (config.program == "enc" || config.program == "both") {
-          send(s, bytes, freq = freq)(_ => ())
+          send(bytes, freq = freq)(_ => ())
         }
       }
     }
   }
 
   // "global"
-  final val f1a       =  4240.0f
-  final val f1b       =  7680.0f
+  final val f1a       =  7680.0f
+  final val f1b       =  4240.0f
   final val f2a       = 11120.0f
   final val f2b       = 14560.0f
 
@@ -158,15 +164,18 @@ object Biphase {
 
   final val globalFreq = Freq(f1a = f1a, f1b = f1b, f2a = f2a, f2b = f2b)
 
-  def send(s: Server, bytes: Array[Byte], freq: Freq = globalFreq)(done: T => Unit)
+  def send(/*s: Server,*/ bytes: Array[Byte], freq: Freq = globalFreq)(done: T => Unit)
           (implicit tx: T, config: Config, universe: Universe[T]): Unit = {
     // val p = Proc[T]()
+    val s = universe.auralContext.get.server
 
-    val st = bytes.iterator.map { b =>
-      val st = s"0x${((b >> 8) & 0xF).toHexString}${(b & 0xF).toHexString}"
-      st
-    } .mkString(" ")
-    println(st)
+    if (config.debug) {
+      val st = bytes.iterator.map { b =>
+        val st = s"0x${((b >> 8) & 0xF).toHexString}${(b & 0xF).toHexString}"
+        st
+      } .mkString(" ")
+      println(st)
+    }
 
     val bits0: Array[Float] = bytes.flatMap { b =>
       val pay = Seq.tabulate(8) { i =>
@@ -177,7 +186,7 @@ object Biphase {
     //val bits = Seq.fill(50)(idle) ++ bits0
     val bits: Vec[Float] = Vec.fill(NumIdle)(idle.toFloat) ++ bits0
 
-    if (config.debug) println(bits.mkString("Biphase Send Bits: ", ", ", ""))
+    log.debug(bits.mkString("Biphase Send Bits: ", ", ", ""))
 
     val numBits = bits.size
 
@@ -200,7 +209,8 @@ object Biphase {
       val phaseClock = Impulse.kr(bitFreq, 0.5f) // Impulse.ar(bitFreq, 0.5)
 
       //val bufRdIdx = PulseCount.ar(bitClock).min(numBits) - 1
-      val bufRdIdx = PulseCount.kr(bitClock).min(numBits) - 1
+      val bitCount = PulseCount.kr(bitClock)
+      val bufRdIdx = bitCount.min(numBits) - 1
       //val currentBit = BufRd.ar(1, bitBuf,
       //  index = bufRdIdx, loop = 0, interp = 0)
       val currentBit = BufRd.kr(1, bitBuf,
@@ -229,6 +239,9 @@ object Biphase {
 
       val amp = "amp".kr(0.1f)
       PhysicalOut.ar(0, osc * amp)
+
+      val done = bitCount sig_== (numBits + NumIdle)
+      FreeSelf.kr(done)
     }
 
     val bitBuf = Buffer(s)(numFrames = numBits)
@@ -255,8 +268,14 @@ object Biphase {
     }
   }
 
-  def receive(s: Server /*, freq: Freq = globalFreq*/)(consume: T => Byte => Unit)
-             (implicit tx: T, config: Config, universe: Universe[T]): Disposable[T] = {
+  trait Receive extends Disposable[T] {
+
+  }
+
+  def receive(/*s: Server*/ /*, freq: Freq = globalFreq*/)(consume: T => Byte => Unit)
+             (implicit tx: T, config: Config, universe: Universe[T]): Receive = {
+    val s = universe.auralContext.get.server
+
     val g = SynthGraph {
       import de.sciss.synth.Import._
       import de.sciss.synth.Ops.stringToControl
@@ -346,9 +365,10 @@ object Biphase {
     val vrByte    = Ref(0)
     val tsUpdate  = Ref(0L)
     val timeOut   = (TimeRef.SampleRate * 0.5).toLong
+    val vrActive  = Ref(true)
 
     def actPutBit(bit: Int)(implicit tx: T): Unit = {
-      println(s"put $bit")
+      log.debug(s"biphase rcv put $bit")
       vrByte.transform(x => (x << 1) | bit)
       val newCount = vrCnt.transformAndGet(+_ + 1)
       if (newCount == 8) vrStop.set(true)
@@ -356,6 +376,8 @@ object Biphase {
 
     object BitResponder extends ActionResponder[T]("emit", syn) {
       override protected def execute(values: Vec[Double])(implicit tx: T): Unit = {
+        if (!vrActive()) return // no longer process dangling messages
+
         // check reset
         val tsNow     = universe.scheduler.time
         val tsBefore  = tsUpdate.swap(tsNow)
@@ -370,8 +392,9 @@ object Biphase {
           if (vrStop()) {
             // stop-bit received
             val b   = vrByte()
-            val st  = s"0x${((b >> 8) & 0xF).toHexString}${(b & 0xF).toHexString}"
-            println(st)
+            consume(tx)(b.toByte)
+//            val st  = s"0x${((b >> 8) & 0xF).toHexString}${(b & 0xF).toHexString}"
+//            println(st)
             vrStop.set(false)
             vrIdle.set(true)
           } else if (!vrIdle()) {
@@ -400,7 +423,11 @@ object Biphase {
 
     syn.play(s, args = Seq("mic-amp" -> config.decMicAmp), addAction = addToHead, dependencies = Nil)
 
-    syn: Disposable[T]
+    new Receive {
+      override def dispose()(implicit tx: T): Unit = {
+        vrActive() = false
+        syn.dispose()
+      }
+    }
   }
-
 }

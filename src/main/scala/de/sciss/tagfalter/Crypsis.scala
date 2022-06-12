@@ -15,7 +15,7 @@ package de.sciss.tagfalter
 
 import de.sciss.audiofile.AudioFileSpec
 import de.sciss.file.userHome
-import de.sciss.lucre.{Artifact, ArtifactLocation, DoubleObj}
+import de.sciss.lucre.{Artifact, ArtifactLocation, BooleanObj, DoubleObj}
 import de.sciss.numbers.Implicits.floatNumberWrapper
 import de.sciss.proc.{AudioCue, Proc, Runner, Universe}
 import de.sciss.synth.{GE, SynthGraph}
@@ -28,13 +28,13 @@ import java.io.File
 object Crypsis {
 
   case class ConfigImpl(
-                         debug          : Boolean = false,
-                         crypMicAmp     : Float   = 30.0f, // 4.0f,
-                         crypSpeakerAmp : Float   =  4.0f,
-                         cmpThreshIn    : Float   = -15f,
-                         cmpThreshOut   : Float   = -15f,
-                         crypAchilles   : Float   = 0.98f,
-                         crypModFreq    : Float   = 0.5f, // 5.6f,
+                         debug          : Boolean =  false,
+                         crypMicAmp     : Float   = 40.0f, // 4.0f,
+                         crypSpeakerAmp : Float   = 12.0f,
+                         cmpThreshIn    : Float   =  10f,
+                         cmpThreshOut   : Float   =  15f,
+                         crypAchilles   : Float   =  0.98f,
+                         crypModFreq    : Float   =  0.5f, // 5.6f,
 //                         crypModDepth   : Float   = 0.7f,
                        ) extends Config
 
@@ -61,16 +61,16 @@ object Crypsis {
         descrYes = "Enter debug mode (verbosity, control files).",
       )
       val crypMicAmp: Opt[Float] = opt(default = Some(default.crypMicAmp),
-        descr = s"Crypsis microphone boost, linear (default: ${default.crypMicAmp}).",
+        descr = s"Crypsis microphone boost, decibels (default: ${default.crypMicAmp}).",
       )
       val crypSpeakerAmp: Opt[Float] = opt(default = Some(default.crypSpeakerAmp),
-        descr = s"Crypsis speaker amplitude, linear (default: ${default.crypSpeakerAmp}).",
+        descr = s"Crypsis speaker amplitude, decibels (default: ${default.crypSpeakerAmp}).",
       )
       val cmpThreshIn: Opt[Float] = opt(default = Some(default.cmpThreshIn),
-        descr = s"Crypsis input compression threshold in decibels (default: ${default.cmpThreshIn}).",
+        descr = s"Crypsis input compression threshold in neg.decibels (default: ${default.cmpThreshIn}).",
       )
       val cmpThreshOut: Opt[Float] = opt(default = Some(default.cmpThreshOut),
-        descr = s"Crypsis output compression threshold in decibels (default: ${default.cmpThreshOut}).",
+        descr = s"Crypsis output compression threshold in neg.decibels (default: ${default.cmpThreshOut}).",
       )
       val crypAchilles: Opt[Float] = opt(default = Some(default.crypAchilles),
         descr = s"Crypsis achilles factor (default: ${default.crypAchilles}).",
@@ -103,6 +103,7 @@ object Crypsis {
   def run()(implicit config: Config): Unit = {
     Main.boot { implicit tx => implicit universe => s =>
       apply(/*s*/)
+      ()
     }
   }
 
@@ -112,7 +113,13 @@ object Crypsis {
   final val LAG_TIME_UP_SEC = 0.1
   final val LAG_TIME_DN_SEC = 0.3
 
-  def apply(/*s: Server*/)(implicit tx: T, config: Config, universe: Universe[T]): Unit = {
+  trait Result {
+    def runner: Runner[T]
+
+    def release()(implicit tx: T): Unit
+  }
+
+  def apply(/*s: Server*/)(implicit tx: T, config: Config, universe: Universe[T]): Result = {
     val p = Proc[T]()
     val dirAudio  = new File(userHome, "Documents/projects/Klangnetze/audio_work")
     val locAudio  = ArtifactLocation.newConst[T](dirAudio.toURI)
@@ -209,6 +216,10 @@ object Crypsis {
       val sig       = mod * "amp".kr(1)
       PhysicalOut.ar(0, sig)
 
+      val gate      = "gate".kr(1)
+      val done      = !gate & A2K.kr(pulseOutL) < (-40.dbAmp)
+      DoneSelf(done)
+
       if (config.debug) {
         DiskOut.ar("rec", Seq(
           pulseIn,
@@ -222,14 +233,15 @@ object Crypsis {
     p.graph() = g
     val pAttr = p.attr
     pAttr.put("noise"         , cueNoise)
-    pAttr.put("amp"           , DoubleObj.newConst[T](config.crypSpeakerAmp))
-    pAttr.put("mic-amp"       , DoubleObj.newConst[T](config.crypMicAmp))
-    pAttr.put("cmp-thresh-in" , DoubleObj.newConst[T](config.cmpThreshIn  .dbAmp))
-    pAttr.put("cmp-thresh-out", DoubleObj.newConst[T](config.cmpThreshOut .dbAmp))
+    pAttr.put("amp"           , DoubleObj.newConst[T](config.crypSpeakerAmp .dbAmp))
+    pAttr.put("mic-amp"       , DoubleObj.newConst[T](config.crypMicAmp     .dbAmp))
+    pAttr.put("cmp-thresh-in" , DoubleObj.newConst[T](-config.cmpThreshIn   .dbAmp))
+    pAttr.put("cmp-thresh-out", DoubleObj.newConst[T](-config.cmpThreshOut  .dbAmp))
     pAttr.put("achilles"      , DoubleObj.newConst[T](config.crypAchilles))
     pAttr.put("mod-freq"      , DoubleObj.newConst[T](config.crypModFreq))
 //    pAttr.put("mod-depth"     , DoubleObj.newConst[T](config.crypModDepth))
-    pAttr.put("mic-amp"       , DoubleObj.newConst[T](config.crypMicAmp))
+    val vrGate = BooleanObj.newVar[T](true)
+    pAttr.put("gate"          , vrGate)
 
     if (config.debug) {
       val artRec = Artifact[T](locAudio, Artifact.Child("_killme.irc"))
@@ -238,5 +250,12 @@ object Crypsis {
 
     val r = Runner(p)
     r.run()
+
+    new Result {
+      override val runner: Runner[T] = r
+
+      override def release()(implicit tx: T): Unit =
+        vrGate() = false
+    }
   }
 }
