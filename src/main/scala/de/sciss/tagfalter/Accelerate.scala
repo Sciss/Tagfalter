@@ -13,18 +13,13 @@
 
 package de.sciss.tagfalter
 
-import de.sciss.audiofile.{AudioFile, AudioFileSpec}
-import de.sciss.file._
-import de.sciss.lucre.{DoubleObj, DoubleVector}
 import de.sciss.lucre.synth.{Server, Txn}
-import de.sciss.numbers.Implicits._
+import de.sciss.lucre.{DoubleObj, DoubleVector}
 import de.sciss.numbers.TwoPi
 import de.sciss.proc.{Proc, Runner, Universe}
 import de.sciss.synth.SynthGraph
 import de.sciss.tagfalter.Main.{SR, T}
 import org.rogach.scallop.{ScallopConf, ScallopOption => Opt}
-
-import scala.math.Pi
 
 object Accelerate {
   def main(args: Array[String]): Unit = {
@@ -126,8 +121,8 @@ object Accelerate {
     val g = SynthGraph {
       import de.sciss.synth.Import._
       import de.sciss.synth.proc.graph.Ops.stringToControl
-      import de.sciss.synth.ugen.{DiskIn => _, PartConv => _, _}
       import de.sciss.synth.proc.graph._
+      import de.sciss.synth.ugen.{DiskIn => _, PartConv => _, _}
 
       val kernel      = Buffer("kernel")
       val in0         = PhysicalIn.ar

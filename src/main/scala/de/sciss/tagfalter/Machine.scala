@@ -13,13 +13,13 @@
 
 package de.sciss.tagfalter
 
-import de.sciss.lucre.{InTxnRandom, Random, RandomObj}
 import de.sciss.lucre.Txn.peer
+import de.sciss.lucre.{Random, RandomObj}
 import de.sciss.proc.Universe
 import de.sciss.synth.UGenSource.Vec
 import de.sciss.tagfalter.Main.{ConfigAll, T, log}
 
-import scala.concurrent.stm.{InTxn, Ref}
+import scala.concurrent.stm.Ref
 
 object Machine {
   private[this] val sync        = new AnyRef
@@ -46,28 +46,39 @@ object Machine {
     private val stageRef        = Ref[Stage](Stage.Empty)
     private val targetStageRef  = Ref[Stage](Stage.Empty)
     private val stagePosRef     = Ref[Vec[Float]](Vec.empty)
-    private val releasedRef     = Ref(true)
+    private val runningRef      = Ref(Option.empty[Stage.Running])
 
     def start()(implicit tx: T): Unit =
-      targetStage_=(Stage.CrypsisStage)
+      targetStage_=(Stage.Crypsis)
 
     override def stage(implicit tx: T): Stage = stageRef()
 
     override def targetStage(implicit tx: T): Stage = targetStageRef()
 
     override def targetStage_=(value: Stage)(implicit tx: T): Unit = {
-/**/      val oldTarget = targetStageRef.swap(value)
+      // val oldTarget = targetStageRef.swap(value)
       targetStageRef() = value
       tryLaunchTarget()
     }
 
     private def tryLaunchTarget()(implicit tx: T): Unit = {
-      if (!releasedRef()) return
+      if (runningRef().isDefined) return
 
-      val st = targetStageRef.swap(Stage.Empty)
-      stageRef() = st
+      val st      = targetStageRef()
+      stageRef()  = st
+      val running = st.run()
+      runningRef() = Some(running)
+      val nextSt: Stage = st match {
+        case Stage.Crypsis      => Stage.DetectSpace
+        case Stage.DetectSpace  => Stage.SpaceTimbre
+        case Stage.SpaceTimbre  => Stage.Crypsis // XXX TODO: Stage.Accelerate
+        case Stage.Accelerate   => Stage.Crypsis
+        case _                  => Stage.Empty
+      }
+      targetStageRef() = nextSt
+
       log.info(s"Starting $st")
-      st.start()
+      running.start()
     }
 
     override def spacePos(implicit tx: T): Vec[Float] = stagePosRef()
@@ -78,7 +89,7 @@ object Machine {
     override def released(st: Stage)(implicit tx: T): Unit = {
       if (stage == st) {
         log.info(s"Released $st")
-        releasedRef() = true
+        runningRef() = None
         tryLaunchTarget()
       }
     }
