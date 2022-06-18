@@ -13,8 +13,8 @@
 
 package de.sciss.tagfalter
 
-import de.sciss.lucre.synth.{Server, Txn}
-import de.sciss.lucre.{DoubleObj, DoubleVector}
+import de.sciss.lucre.synth.{Txn, Buffer => LBuffer}
+import de.sciss.lucre.{BooleanObj, DoubleObj, DoubleVector, IntObj}
 import de.sciss.numbers.TwoPi
 import de.sciss.proc.{Proc, Runner, Universe}
 import de.sciss.synth.SynthGraph
@@ -93,30 +93,80 @@ object Accelerate {
 //    afOut.write(Array(kernel))
 //    afOut.close()
 
-    Main.boot { implicit tx => implicit universe => s =>
-      accelImpl[T](s)
+    Main.boot { implicit tx => implicit universe => _ /*s*/ =>
+      accelImpl(/*s*/)
     }
   }
 
-  def accelImpl[T <: Txn[T]](s: Server)(implicit tx: T, universe: Universe[T], config: Config): Unit = {
-    val nyquist   = SR / 2
-    val factor    = config.accelFactor // 32.0
-    val rollOff   = 0.8
-    val cutOff    = nyquist * rollOff / factor
+  def accelImpl(/*s: Server*/)(implicit tx: T, universe: Universe[T], config: Config): Unit = {
+    val rc = rec()
+    play(rc)
+  }
 
-    // LPF test only:
-//    val g = SynthGraph {
-//      import de.sciss.synth.Import._
-//      import de.sciss.synth.Ops.stringToControl
-//      import de.sciss.synth.ugen.{DiskIn => _, PartConv => _, _}
-//      import de.sciss.synth.proc.graph._
-//
-//      val kernel  = Buffer("kernel")
-//      val in      = WhiteNoise.ar(0.2)
-//      val flt     = Convolution2.ar(in, kernel, frameSize = filterLen)
-//      val sig     = flt * "amp".kr(1.0)
-//      PhysicalOut.ar(0, sig)
-//    }
+  trait RecResult {
+    def buffer: LBuffer
+
+    def runner: Runner[T]
+
+    def release()(implicit tx: T): Unit
+  }
+
+  trait PlayResult {
+    def runner: Runner[T]
+
+    def release()(implicit tx: T): Unit
+  }
+
+  def play(rc: RecResult)(implicit tx: T, universe: Universe[T], config: Config): PlayResult = {
+    val g = SynthGraph {
+      import de.sciss.synth.Import._
+      import de.sciss.synth.proc.graph.Ops.stringToControl
+      import de.sciss.synth.proc.graph._
+      import de.sciss.synth.ugen.{DiskIn => _, PartConv => _, _}
+
+      val gate        = "gate".kr(1)
+      val bufAccel    = "buf".kr(0) // Buffer.Empty(accelFrames)
+      val sigRd       = PlayBuf.ar(1, bufAccel, loop = 1)
+      val amp         = "amp".kr(1.0)
+      val env         = EnvGen.kr(Env.asr(attack = 2.5f, level = amp, release = 5f), gate = gate)
+      DoneSelf(Done.kr(env))
+      val sig         = sigRd * env
+
+      if (config.debug) {
+        sig.poll(1, "accel-play")
+      }
+
+      PhysicalOut.ar(0, sig)
+    }
+
+    val p = Proc[T]()
+    val vrGate = BooleanObj.newVar[T](true)
+    p.graph()     = g
+    val pAttr     = p.attr
+    pAttr.put("amp"     , DoubleObj.newConst[T](config.accelSigAmp))
+    pAttr.put("buf"     , IntObj.newConst[T](rc.buffer.id))  // XXX TODO: yeah, well, we need a proc.Buffer object
+    pAttr.put("gate"    , vrGate)
+    val r = Runner(p)
+    r.run()
+
+    new PlayResult {
+      override val runner: Runner[T]  = r
+
+      override def release()(implicit tx: T): Unit =
+        vrGate() = false
+    }
+  }
+
+  def rec(/*s: Server*/)(implicit tx: T, universe: Universe[T], config: Config): RecResult = {
+    val s = universe.auralContext.get.server
+
+    val nyquist     = SR / 2
+    val factor      = config.accelFactor // 32.0
+    val rollOff     = 0.8
+    val cutOff      = nyquist * rollOff / factor
+    val accelFrames = (config.accelBufDur * SR).toInt
+
+    val b = LBuffer(s)(numFrames = accelFrames)
 
     val g = SynthGraph {
       import de.sciss.synth.Import._
@@ -129,15 +179,18 @@ object Accelerate {
       val in          = in0 * "mic-amp".kr(1.0)
       val flt         = Convolution2.ar(in, kernel, frameSize = filterLen)
 
-      val accelFrames = (config.accelBufDur * SR).toInt
-      val bufAccel    = Buffer.Empty(accelFrames)
+      if (config.debug) {
+        in.poll(1, "accel-rec")
+      }
+
+      val bufAccel    = "buf".kr(0) // Buffer.Empty(accelFrames)
       val sigWr       = flt
       val indexWr     = Phasor.ar(speed = factor.reciprocal, lo = 0, hi = accelFrames)
       BufWr.ar(sigWr, bufAccel, index = indexWr, loop = 1)
 
-      val sigRd       = PlayBuf.ar(1, bufAccel, loop = 1)
-      val sig         = sigRd * "amp".kr(1.0)
-      PhysicalOut.ar(0, sig)
+//      val sigRd       = PlayBuf.ar(1, bufAccel, loop = 1)
+//      val sig         = sigRd * "amp".kr(1.0)
+//      PhysicalOut.ar(0, sig)
     }
 
     val p = Proc[T]()
@@ -147,9 +200,17 @@ object Accelerate {
     val vecKernel = DoubleVector.newConst[T](arrKernel.toIndexedSeq)
     pAttr.put("kernel", vecKernel)
     pAttr.put("mic-amp" , DoubleObj.newConst[T](config.accelMicAmp))
-    pAttr.put("amp"     , DoubleObj.newConst[T](config.accelSigAmp))
+//    pAttr.put("amp"     , DoubleObj.newConst[T](config.accelSigAmp))
+    pAttr.put("buf"     , IntObj.newConst[T](b.id))  // XXX TODO: yeah, well, we need a proc.Buffer object
     val r = Runner(p)
     r.run()
+
+    new RecResult {
+      override val buffer: LBuffer    = b
+      override val runner: Runner[T]  = r
+
+      override def release()(implicit tx: T): Unit = r.stop()
+    }
   }
 
   private def makeLPF(f: Double): Array[Double] = {
