@@ -47,9 +47,13 @@ object Machine {
     private val targetStageRef  = Ref[Stage](Stage.Empty)
     private val stagePosRef     = Ref[Vec[Float]](Vec.empty)
     private val runningRef      = Ref(Option.empty[Stage.Running])
+    private val accelRecRef     = Ref(Option.empty[Accelerate.RecResult])
 
-    def start()(implicit tx: T): Unit =
+    def start()(implicit tx: T): Unit = {
       targetStage_=(Stage.Crypsis)
+//      val rc = Accelerate.rec()
+//      accelRecRef = Some(rc)
+    }
 
     override def stage(implicit tx: T): Stage = stageRef()
 

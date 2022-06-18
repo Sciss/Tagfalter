@@ -68,8 +68,16 @@ object Main {
                          spaceMinFreq  : Float   =   150.0f,
                          spaceMaxFreq  : Float   = 18000.0f,
                          spaceAmp      : Float   = 0.0f, // decibels
+                         // --- Accelerate ---
+                         accelMicAmp  : Float   = 10.0f,
+                         accelSigAmp  : Float   =  1.0f,
                        ) extends Config
-    with OscNode.Config with DetectSpace.Config with Crypsis.Config with Biphase.Config with SpaceTimbre.Config
+    with OscNode      .Config
+    with DetectSpace  .Config
+    with Crypsis      .Config
+    with Biphase      .Config
+    with SpaceTimbre  .Config
+    with Accelerate   .Config
 
   trait Config {
     def initCrypMinDur  : Float
@@ -84,6 +92,7 @@ object Main {
     with Crypsis    .Config
     with Biphase    .Config
     with SpaceTimbre.Config
+    with Accelerate .Config
 
   val log: Logger = new Logger("tag")
 
@@ -169,6 +178,14 @@ object Main {
         descr = s"Codec frequency 2b, linear (default: ${default.biphaseF2b}).",
       )
 
+      // --- Accelerate ---
+      val accelMicAmp: Opt[Float] = opt(default = Some(default.accelMicAmp),
+        descr = s"Acceleration microphone boost, linear (default: ${default.accelMicAmp}).",
+      )
+      val accelSigAmp: Opt[Float] = opt(default = Some(default.accelSigAmp),
+        descr = s"Acceleration signal boost, linear (default: ${default.accelSigAmp}).",
+      )
+
       verify()
       implicit val config: ConfigAll = ConfigImpl(
         // --- Main ---
@@ -198,6 +215,8 @@ object Main {
         biphaseF2a      = biphaseF2a(),
         biphaseF2b      = biphaseF2b(),
         // --- SpaceTimbre ---
+        accelMicAmp     = accelMicAmp(),
+        accelSigAmp     = accelSigAmp(),
       )
     }
     import p.config

@@ -13,7 +13,7 @@
 
 package de.sciss.tagfalter
 
-import de.sciss.lucre.synth.{Txn, Buffer => LBuffer}
+import de.sciss.lucre.synth.{Buffer => LBuffer}
 import de.sciss.lucre.{BooleanObj, DoubleObj, DoubleVector, IntObj}
 import de.sciss.numbers.TwoPi
 import de.sciss.proc.{Proc, Runner, Universe}
@@ -39,6 +39,7 @@ object Accelerate {
       val accelSigAmp: Opt[Float] = opt(default = Some(default.accelSigAmp),
         descr = s"Acceleration signal boost, linear (default: ${default.accelSigAmp}).",
       )
+      // --- impl ---
       val accelFactor: Opt[Float] = opt(default = Some(default.accelFactor),
         descr = s"Acceleration factor (default: ${default.accelFactor}).",
       )
@@ -47,7 +48,7 @@ object Accelerate {
       )
 
       verify()
-      implicit val config: Config = ConfigImpl(
+      implicit val config: ConfigImpl = ConfigImpl(
         debug       = debug(),
         accelMicAmp = accelMicAmp(),
         accelSigAmp = accelSigAmp(),
@@ -62,22 +63,27 @@ object Accelerate {
   final val filterLen  = 512
 
   case class ConfigImpl(
+                       // base
+                       accelBufDur  : Float   = 12.0f,
+                       accelFactor  : Float   = 32f,
+                       // core
                        debug        : Boolean = false,
                        accelMicAmp  : Float   = 10.0f,
                        accelSigAmp  : Float   =  1.0f,
-                       accelBufDur  : Float   = 12.0f,
-                       accelFactor  : Float   = 32f,
                        ) extends Config
 
   trait Config {
     def debug       : Boolean
     def accelMicAmp : Float
     def accelSigAmp : Float
-    def accelBufDur : Float
-    def accelFactor : Float
   }
 
-  def run()(implicit config: Config): Unit = {
+//  trait Config extends Config{
+//    def accelBufDur : Float
+//    def accelFactor : Float
+//  }
+
+  def run()(implicit config: ConfigImpl): Unit = {
 //    val bla = Runtime.getRuntime ().freeMemory ()
 //    println(s"FREE MEM : $bla")
 //    sys.exit()
@@ -98,8 +104,11 @@ object Accelerate {
     }
   }
 
-  def accelImpl(/*s: Server*/)(implicit tx: T, universe: Universe[T], config: Config): Unit = {
-    val rc = rec()
+  def accelImpl(/*s: Server*/)(implicit tx: T, universe: Universe[T], config: ConfigImpl): Unit = {
+    val rc = recWith(
+      accelFactor = config.accelFactor,
+      accelBufDur = config.accelBufDur
+    )
     play(rc)
   }
 
@@ -157,14 +166,14 @@ object Accelerate {
     }
   }
 
-  def rec(/*s: Server*/)(implicit tx: T, universe: Universe[T], config: Config): RecResult = {
+  def recWith(accelFactor: Float, accelBufDur: Float)(implicit tx: T, universe: Universe[T], config: Config): RecResult = {
     val s = universe.auralContext.get.server
 
     val nyquist     = SR / 2
-    val factor      = config.accelFactor // 32.0
+    // val accelFactor      = config.accelFactor // 32.0
     val rollOff     = 0.8
-    val cutOff      = nyquist * rollOff / factor
-    val accelFrames = (config.accelBufDur * SR).toInt
+    val cutOff      = nyquist * rollOff / accelFactor
+    val accelFrames = (accelBufDur * SR).toInt
 
     val b = LBuffer(s)(numFrames = accelFrames)
 
@@ -185,7 +194,7 @@ object Accelerate {
 
       val bufAccel    = "buf".kr(0) // Buffer.Empty(accelFrames)
       val sigWr       = flt
-      val indexWr     = Phasor.ar(speed = factor.reciprocal, lo = 0, hi = accelFrames)
+      val indexWr     = Phasor.ar(speed = accelFactor.reciprocal, lo = 0, hi = accelFrames)
       BufWr.ar(sigWr, bufAccel, index = indexWr, loop = 1)
 
 //      val sigRd       = PlayBuf.ar(1, bufAccel, loop = 1)
