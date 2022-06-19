@@ -32,7 +32,7 @@ object SpaceTimbre {
                          spaceMaxCm    : Float   = 12000.0f, // 2000.0
                          spaceMinFreq  : Float   =   150.0f,
                          spaceMaxFreq  : Float   = 18000.0f,
-                         spaceAmp      : Float   = -6.0f, // decibels
+                         spaceAmp      : Float   = -10.0f, // decibels
 
                        ) extends Config
 
@@ -128,7 +128,10 @@ object SpaceTimbre {
     }
   }
 
-  def apply(vec: Vec[Float])(implicit tx: T, config: Config, universe: Universe[T]): Result = {
+  def apply(vec: Vec[Float])(implicit tx: T, config: Config, universe: Universe[T]): Result =
+    applyWith(vec, amp = config.spaceAmp.dbAmp)
+
+  def applyWith(vec: Vec[Float], amp: Float)(implicit tx: T, config: Config, universe: Universe[T]): Result = {
     val g = SynthGraph {
       import de.sciss.synth.Import._
       import de.sciss.synth.proc.graph.DoneSelf
@@ -171,7 +174,7 @@ object SpaceTimbre {
     val vrGate = BooleanObj.newVar[T](true)
 
     pAttr.put("freq-seq", DoubleVector.newConst[T](freqSeq))
-    pAttr.put("amp", DoubleObj.newConst[T](config.spaceAmp.dbAmp))
+    pAttr.put("amp", DoubleObj.newConst[T](amp /*config.spaceAmp.dbAmp*/))
     pAttr.put("gate", vrGate)
     val r = Runner(p)
     r.run()

@@ -25,3 +25,20 @@ Biphase tests:
 Crypsis (outside):
 
     --cryp-mod-freq 0.747 --cmp-thresh-in -10 --cryp-mic-amp 100 --cryp-speaker-amp 10
+
+## running via ssh
+
+```
+ssh pi@klangpi01.local
+```
+
+To avoid killing the process when ssh ends / times out, use
+[screen](https://raspi.tv/2012/using-screen-with-raspberry-pi-to-avoid-leaving-ssh-sessions-open):
+
+```
+screen bash
+cd ~/src/klangnetze/src/
+./hanns/tag-falter.sh
+```
+
+Followed by `Ctrl-A`, `D` to close the screen terminal. To return to the screen terminal: `screen -r`.

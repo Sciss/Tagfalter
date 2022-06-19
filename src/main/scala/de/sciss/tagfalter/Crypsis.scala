@@ -35,7 +35,7 @@ object Crypsis {
                          cmpThreshIn    : Float   =  10f,
                          cmpThreshOut   : Float   =  15f,
                          crypAchilles   : Float   =  0.98f,
-                         crypModFreq    : Float   =  0.5f, // 5.6f,
+                         crypModFreq    : Float   =  0.15f, // 0.5f, // 5.6f,
 //                         crypModDepth   : Float   = 0.7f,
                        ) extends Config
 
@@ -117,7 +117,7 @@ object Crypsis {
 //  final val LATENCY_ADD = 141   // 1m spacing
   final val LATENCY_ACOUSTIC_SEC = 0.003 // 1m spacing
   final val LAG_TIME_UP_SEC = 0.1
-  final val LAG_TIME_DN_SEC = 0.3
+  final val LAG_TIME_DN_SEC = 1.5 // 0.5 // 0.3
 
   trait Result {
     def runner: Runner[T]
@@ -149,7 +149,8 @@ object Crypsis {
 
       val modFreq         = "mod-freq".kr(5.0)
       val modPeriod       = 0.5 / modFreq
-      val pulseWidth      = (0.5 * modPeriod - (LATENCY_ACOUSTIC_SEC /**2*/ + (LAG_TIME_UP_SEC + LAG_TIME_DN_SEC) * 0.5)) / modPeriod // e.g.  0.44
+      val pulseWidth0     = (0.5 * modPeriod - (LATENCY_ACOUSTIC_SEC /**2*/ + (LAG_TIME_UP_SEC + LAG_TIME_DN_SEC * 1.5) * 0.5)) / modPeriod // e.g.  0.44
+      val pulseWidth      = pulseWidth0.max(0.05)
       /*
 
        iphase: initial phase offset in cycles ( 0..1 ). If you think of a buffer of one cycle of the waveform, this is
@@ -168,7 +169,9 @@ object Crypsis {
       val pulseIn         = LFPulse.ar(modFreq, iphase = pulseInPhase   , width = pulseWidth)
       val pulseOut        = LFPulse.ar(modFreq, iphase = pulseOutPhase  , width = pulseWidth)
       val pulseInL        = Lag2UD.ar(pulseIn , LAG_TIME_UP_SEC, LAG_TIME_DN_SEC)
-      val pulseOutL       = Lag2UD.ar(pulseOut, LAG_TIME_UP_SEC, LAG_TIME_DN_SEC)
+      val pulseOutL       = Lag2UD.ar(pulseOut, LAG_TIME_UP_SEC, LAG_TIME_DN_SEC * 2)
+      val envLPF          = Env.asr(attack = LAG_TIME_UP_SEC * 3, release = LAG_TIME_DN_SEC * 2)
+      val egLPF           = EnvGen.kr(envLPF, gate = pulseOut).linExp(0.0, 1.0, 50, 16000)
 
       val in        = in2 * pulseInL
 
@@ -222,7 +225,8 @@ object Crypsis {
 
       val achil     = dly // mkAchil(dly)
 //      val modDepth  = "mod-freq".kr(0.8)
-      val mod       = achil * pulseOutL // SinOsc.kr(modFreq).mulAdd(modDepth * 0.5, 1.0 - modDepth * 0.5)
+      val mod0      = achil * pulseOutL // SinOsc.kr(modFreq).mulAdd(modDepth * 0.5, 1.0 - modDepth * 0.5)
+      val mod       = LPF.ar(mod0, egLPF)
       val sig       = mod * "amp".kr(1)
       PhysicalOut.ar(0, sig)
 

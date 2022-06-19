@@ -15,7 +15,7 @@ package de.sciss.tagfalter
 
 import de.sciss.lucre.Disposable
 import de.sciss.lucre.Txn.peer
-import de.sciss.numbers.Implicits.doubleNumberWrapper
+import de.sciss.numbers.Implicits._
 import de.sciss.proc.TimeRef
 import de.sciss.tagfalter.Main.{T, log}
 
@@ -30,8 +30,13 @@ class CrypsisStage extends Stage.Running {
 
   override def start()(implicit tx: T, machine: Machine): Unit = {
     import machine.{config, random, universe}
-    val cryp = Crypsis()
-    crypRef() = Some(cryp)
+    val spacePos  = machine.spacePos
+    val modFreq   = if (spacePos.isEmpty) config.crypModFreq else {
+      val sz: Int = spacePos.size.clip(config.minSpacePos, config.maxSpacePos)
+      sz.linLin(config.minSpacePos, config.maxSpacePos, config.crypModMinFreq, config.crypModMaxFreq)
+    }
+    val cryp      = Crypsis.applyWith(modFreq = modFreq)
+    crypRef()     = Some(cryp)
     /*val lCryp: Disposable[T] =*/ cryp.runner.reactNow { implicit tx => state =>
       if (state.idle) {
         // lCryp.dispose()

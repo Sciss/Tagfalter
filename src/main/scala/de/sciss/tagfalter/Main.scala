@@ -42,6 +42,9 @@ object Main {
                          accelRecTime   : Float   = 600f,
                          spaceMinDur    : Float   = 32f,
                          spaceMaxDur    : Float   = 80f,
+                         crypModMinFreq : Float   =  0.07f,
+                         crypModMaxFreq : Float   =  0.25f,
+                         spaceAmpMaxDamp: Float   = 6.0f, // decibels
                          // --- OscNode ---
                          dumpOsc        : Boolean = false,
                          oscPort        : Int     = DEFAULT_PORT,
@@ -58,7 +61,7 @@ object Main {
                          cmpThreshIn    : Float   =  10f,
                          cmpThreshOut   : Float   =  15f,
                          crypAchilles   : Float   =  0.98f,
-                         crypModFreq    : Float   =  0.5f, // 5.6f,
+                         crypModFreq    : Float   =  0.15f, // 0.25f, // 0.5f, // 5.6f,
                          // --- Biphase ---
                          bitPeriod      : Float   = 120.0f,
                          encAmp         : Float   = -20f,
@@ -74,7 +77,7 @@ object Main {
                          spaceMaxCm    : Float   = 12000.0f, // 2000.0
                          spaceMinFreq  : Float   =   150.0f,
                          spaceMaxFreq  : Float   = 18000.0f,
-                         spaceAmp      : Float   = -6.0f, // decibels
+                         spaceAmp      : Float   = -10.0f, // decibels
                          // --- Accelerate ---
                          accelMicAmp  : Float   = 10.0f,
                          accelSigAmp  : Float   =  1.0f,
@@ -98,6 +101,9 @@ object Main {
     def accelRecTime    : Float
     def spaceMinDur     : Float
     def spaceMaxDur     : Float
+    def crypModMinFreq  : Float
+    def crypModMaxFreq  : Float
+    def spaceAmpMaxDamp : Float
   }
 
   type ConfigAll = Config
@@ -150,6 +156,15 @@ object Main {
       )
       val spaceMaxDur: Opt[Float] = opt(default = Some(default.spaceMaxDur),
         descr = s"Space-timbre maximum duration, in seconds (default: ${default.spaceMaxDur}).",
+      )
+      val crypModMinFreq: Opt[Float] = opt(default = Some(default.crypModMinFreq),
+        descr = s"Crypsis minimum modulation frequency in Hz (default: ${default.crypModMinFreq}).",
+      )
+      val crypModMaxFreq: Opt[Float] = opt(default = Some(default.crypModMaxFreq),
+        descr = s"Crypsis minimum modulation frequency in Hz (default: ${default.crypModMaxFreq}).",
+      )
+      val spaceAmpMaxDamp: Opt[Float] = opt(default = Some(default.spaceAmpMaxDamp),
+        descr = s"Space-timbre maximum amplitude damping, in decibels (default: ${default.spaceAmpMaxDamp}).",
       )
 
       // --- OscNode ---
@@ -252,6 +267,9 @@ object Main {
         accelRecTime    = accelRecTime(),
         spaceMinDur     = spaceMinDur(),
         spaceMaxDur     = spaceMaxDur(),
+        crypModMinFreq  = crypModMinFreq(),
+        crypModMaxFreq  = crypModMaxFreq(),
+        spaceAmpMaxDamp = spaceAmpMaxDamp(),
         // --- OscNode ---
         dumpOsc         = dumpOsc(),
         oscPort         = oscPort(),

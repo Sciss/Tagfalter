@@ -26,6 +26,9 @@ object Machine {
   private[this] val sync        = new AnyRef
   private[this] var _instance   = Option.empty[Machine]
 
+  private val INTER_DELAY_MIN = 1.0f
+  private val INTER_DELAY_MAX = 2.0f
+
   def instance: Option[Machine] = sync.synchronized(_instance)
 
   def apply()(implicit tx: T, config: ConfigAll, universe: Universe[T]): Machine = {
@@ -67,7 +70,8 @@ object Machine {
       targetStageRef() = value
       val sch = universe.scheduler
       // try to start next stage with a second delay
-      sch.schedule(sch.time + TimeRef.SampleRate.toLong) { implicit tx =>
+      val INTER_DELAY = random.nextFloat().linLin(0f, 1f, INTER_DELAY_MIN, INTER_DELAY_MAX)
+      sch.schedule(sch.time + (TimeRef.SampleRate * INTER_DELAY).toLong) { implicit tx =>
         tryLaunchTarget()
       }
     }

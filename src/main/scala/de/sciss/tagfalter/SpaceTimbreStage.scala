@@ -14,7 +14,7 @@
 package de.sciss.tagfalter
 
 import de.sciss.lucre.Txn.peer
-import de.sciss.numbers.Implicits.doubleNumberWrapper
+import de.sciss.numbers.Implicits._
 import de.sciss.proc.TimeRef
 import de.sciss.tagfalter.Main.{T, log}
 
@@ -28,7 +28,11 @@ class SpaceTimbreStage extends Stage.Running {
 
   override def start()(implicit tx: T, machine: Machine): Unit = {
     import machine.{config, random, universe}
-    val timbre = SpaceTimbre(machine.spacePos)
+    // println(s"FROM ${config.spaceAmp} TO ${config.spaceAmp - config.spaceAmpMaxDamp}")
+    val ampDb = random.nextFloat().linLin(0f, 1f, config.spaceAmp, config.spaceAmp - config.spaceAmpMaxDamp)
+    log.debug(f"space-timbre amp is $ampDb%1.1f dB")
+    val amp   = ampDb.dbAmp
+    val timbre = SpaceTimbre.applyWith(machine.spacePos, amp = amp)
     timbre.runner.reactNow { implicit tx => state =>
       if (state.idle) {
         if (timbreRef.swap(None).contains(timbre)) {
