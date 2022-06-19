@@ -15,6 +15,7 @@ package de.sciss.tagfalter
 
 import de.sciss.lucre.synth.{Buffer => LBuffer}
 import de.sciss.lucre.{BooleanObj, DoubleObj, DoubleVector, IntObj}
+import de.sciss.numbers.Implicits._
 import de.sciss.numbers.TwoPi
 import de.sciss.proc.{Proc, Runner, Universe}
 import de.sciss.synth.SynthGraph
@@ -46,14 +47,18 @@ object Accelerate {
       val accelBufDur: Opt[Float] = opt(default = Some(default.accelBufDur),
         descr = s"Acceleration buffer duration in seconds (default: ${default.accelBufDur}).",
       )
+      val accelCmpThresh: Opt[Float] = opt(default = Some(default.accelCmpThresh),
+        descr = s"Accelerate output compression threshold in neg.decibels (default: ${default.accelCmpThresh}).",
+      )
 
       verify()
       implicit val config: ConfigImpl = ConfigImpl(
-        debug       = debug(),
-        accelMicAmp = accelMicAmp(),
-        accelSigAmp = accelSigAmp(),
-        accelFactor = accelFactor(),
-        accelBufDur = accelBufDur(),
+        debug           = debug(),
+        accelMicAmp     = accelMicAmp(),
+        accelSigAmp     = accelSigAmp(),
+        accelFactor     = accelFactor(),
+        accelBufDur     = accelBufDur(),
+        accelCmpThresh  = accelCmpThresh(),
       )
     }
     import p.config
@@ -64,18 +69,20 @@ object Accelerate {
 
   case class ConfigImpl(
                        // base
-                       accelBufDur  : Float   = 12.0f,
-                       accelFactor  : Float   = 32f,
+                       accelBufDur    : Float   = 12.0f,
+                       accelFactor    : Float   = 32f,
                        // core
-                       debug        : Boolean = false,
-                       accelMicAmp  : Float   = 10.0f,
-                       accelSigAmp  : Float   =  1.0f,
+                       debug          : Boolean = false,
+                       accelMicAmp    : Float   = 10.0f,
+                       accelSigAmp    : Float   =  1.0f,
+                       accelCmpThresh : Float   = 15f,
                        ) extends Config
 
   trait Config {
-    def debug       : Boolean
-    def accelMicAmp : Float
-    def accelSigAmp : Float
+    def debug         : Boolean
+    def accelMicAmp   : Float
+    def accelSigAmp   : Float
+    def accelCmpThresh: Float
   }
 
 //  trait Config extends Config{
@@ -133,13 +140,19 @@ object Accelerate {
       import de.sciss.synth.proc.graph._
       import de.sciss.synth.ugen.{DiskIn => _, PartConv => _, _}
 
-      val gate        = "gate".kr(1)
-      val bufAccel    = "buf".kr(0) // Buffer.Empty(accelFrames)
-      val sigRd       = PlayBuf.ar(1, bufAccel, loop = 1)
+      val gate          = "gate".kr(1)
+      val bufAccel      = "buf".kr(0) // Buffer.Empty(accelFrames)
+      val sigRd         = PlayBuf.ar(1, bufAccel, loop = 1)
+
+      val cmpRatioOut   = 1.0/8 // "cmp-ratio-in".kr(1.0/8)
+      val cmpThreshOut  = "cmp-thresh-out".kr((-24).dbAmp)
+      val cmpOut        = Compander.ar(sigRd, sigRd, thresh = cmpThreshOut, ratioBelow = 1.0, ratioAbove = cmpRatioOut,
+        attack = 0.01, release = 10.0)
+
       val amp         = "amp".kr(1.0)
       val env         = EnvGen.kr(Env.asr(attack = 2.5f, level = amp, release = 5f), gate = gate)
       DoneSelf(Done.kr(env))
-      val sig         = sigRd * env
+      val sig         = cmpOut * env
 
       if (config.debug) {
         sig.poll(1, "accel-play")
@@ -154,6 +167,7 @@ object Accelerate {
     val pAttr     = p.attr
     pAttr.put("amp"     , DoubleObj.newConst[T](config.accelSigAmp))
     pAttr.put("buf"     , IntObj.newConst[T](rc.buffer.id))  // XXX TODO: yeah, well, we need a proc.Buffer object
+    pAttr.put("cmp-thresh-out", DoubleObj.newConst[T]((-config.accelCmpThresh).dbAmp))
     pAttr.put("gate"    , vrGate)
     val r = Runner(p)
     r.run()

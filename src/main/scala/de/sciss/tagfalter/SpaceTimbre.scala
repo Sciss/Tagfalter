@@ -129,9 +129,11 @@ object SpaceTimbre {
   }
 
   def apply(vec: Vec[Float])(implicit tx: T, config: Config, universe: Universe[T]): Result =
-    applyWith(vec, amp = config.spaceAmp.dbAmp)
+    applyWith(vec, amp = config.spaceAmp.dbAmp, skipFreq = Nil)
 
-  def applyWith(vec: Vec[Float], amp: Float)(implicit tx: T, config: Config, universe: Universe[T]): Result = {
+  /** @param skipFreq   frequencies to avoid, in ascending order
+    */
+  def applyWith(spacePosCm: Vec[Float], skipFreq: Seq[Float], amp: Float)(implicit tx: T, config: Config, universe: Universe[T]): Result = {
     val g = SynthGraph {
       import de.sciss.synth.Import._
       import de.sciss.synth.proc.graph.DoneSelf
@@ -141,8 +143,8 @@ object SpaceTimbre {
       //space.poll(0, "space")
 
       // XXX TODO: is this good, referring to the number of channels of `vec`?
-      val oscAmpSeq = Vec.tabulate(vec.size) { i =>
-        LFNoise1.kr(i.linLin(0, vec.size - 1, 0.11, 0.23)).abs
+      val oscAmpSeq = Vec.tabulate(spacePosCm.size) { i =>
+        LFNoise1.kr(i.linLin(0, spacePosCm.size - 1, 0.11, 0.23)).abs
       }
       val oscSeq    = SinOsc.ar(freqSeq) * oscAmpSeq
       val oscSum    = Mix.Mono(oscSeq) / NumChannels(oscSeq)
@@ -157,19 +159,28 @@ object SpaceTimbre {
     p.graph() = g
     val pAttr = p.attr
 
-    val spaceSeq = vec match {
+    val spaceSeq = spacePosCm match {
       case Vec()        => Vec(120.0f, 5000.0f)
       case Vec(single)  => Vec(single, single * 1.5f)
-      case _            => vec
+      case _            => spacePosCm
     }
     val spaceLo   = spaceSeq.min
     val spaceHi   = spaceSeq.max
     log.debug(f"space-lo = $spaceLo%1.1f")
     log.debug(f"space-hi = $spaceHi%1.1f")
-    // XXX TODO: we should skip the global communication frequencies!
+
     import config.{spaceMaxCm, spaceMaxFreq, spaceMinCm, spaceMinFreq}
-    val freqSeq = spaceSeq.map(_.toDouble.clip(spaceMinCm, spaceMaxCm)
-      .linExp(spaceMinCm, spaceMaxCm, spaceMinFreq, spaceMaxFreq))
+    val freqSeq = spaceSeq.map { cm =>
+      val cmClip  = cm.toDouble.clip(spaceMinCm, spaceMaxCm)
+      val f0      = cmClip.linExp(spaceMinCm, spaceMaxCm, spaceMinFreq, spaceMaxFreq)
+      skipFreq.foldLeft(f0) { (f1, fBlock) =>
+        // XXX TODO: should we use relative frequencies, such as `fBlock * 0.99` ?
+        //  I think Goertzel is on a linear spectrum, so probably fine like this
+        val fBlockLo = fBlock - 100f
+        val fBlockHi = fBlock + 100f
+        if (f1 >= fBlockLo && f1 <= fBlockHi) fBlockHi else f1
+      }
+    }
 
     val vrGate = BooleanObj.newVar[T](true)
 

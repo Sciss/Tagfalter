@@ -53,10 +53,14 @@ object Machine {
     private val runningRef      = Ref(Option.empty[Stage.Running])
     private val accelRecRef     = Ref(Option.empty[Accelerate.RecResult])
     private val accelRecTime    = Ref(0L)
+    private val detectSpaceTime = Ref(0L)
 
     def start()(implicit tx: T): Unit = {
       targetStage_=(Stage.Crypsis)
     }
+
+    override def commFreq(implicit tx: T): Vec[(Float, Float)] =
+      Vec((config.biphaseF1a, config.biphaseF2a))
 
     override def accelerateRec(implicit tx: T): Option[Accelerate.RecResult] =
       accelRecRef()
@@ -79,21 +83,32 @@ object Machine {
     private def tryLaunchTarget()(implicit tx: T): Unit = {
       if (runningRef().isDefined) return
 
-      val st      = targetStageRef()
-      stageRef()  = st
-      val running = st.run()
-      runningRef() = Some(running)
+      val st        = targetStageRef()
+      stageRef()    = st
+      val running   = st.run()
+      runningRef()  = Some(running)
+      val timeNow   = universe.scheduler.time
       val nextSt: Stage = st match {
-        case Stage.Crypsis      => Stage.DetectSpace
-        case Stage.DetectSpace  => Stage.SpaceTimbre
-        case Stage.SpaceTimbre  =>
-          val timeNow = universe.scheduler.time
+        case Stage.Crypsis =>
+          val timeDetectOld = detectSpaceTime()
+          if (timeDetectOld == 0L || (timeNow - timeDetectOld) / TimeRef.SampleRate >= config.detectSpacePeriod) {
+            detectSpaceTime() = timeNow
+            Stage.DetectSpace
+          } else {
+            log.info("(skip detect-space this time)")
+            Stage.SpaceTimbre
+          }
+
+        case Stage.DetectSpace => Stage.SpaceTimbre
+
+        case Stage.SpaceTimbre =>
           val timeRec = accelRecTime()
           if (accelRecRef().isDefined && timeRec != 0L && (timeNow - timeRec) / TimeRef.SampleRate >= config.accelRecTime) {
             Stage.Accelerate
           } else {
             Stage.Crypsis
           }
+
         case Stage.Accelerate   => Stage.Crypsis
         case _                  => Stage.Empty
       }
@@ -137,6 +152,7 @@ trait Machine {
 
   implicit def config: ConfigAll
 
+  /** Currently known spatial positions in cm. Empty if unknown. */
   def spacePos(implicit tx: T): Vec[Float]
   def spacePos_=(value: Vec[Float])(implicit tx: T): Unit
 
@@ -151,4 +167,10 @@ trait Machine {
   def targetStage_=(value: Stage)(implicit tx: T): Unit
 
   def released(stage: Stage)(implicit tx: T): Unit
+
+  /** Currently known communication frequencies in Hz,
+    * including the global ones; thus always returns at
+    * least one tuple.
+    */
+  def commFreq(implicit tx: T): Vec[(Float, Float)]
 }

@@ -45,6 +45,7 @@ object Main {
                          crypModMinFreq : Float   =  0.07f,
                          crypModMaxFreq : Float   =  0.25f,
                          spaceAmpMaxDamp: Float   = 6.0f, // decibels
+                         detectSpacePeriod : Float  = 480f, // in seconds
                          // --- OscNode ---
                          dumpOsc        : Boolean = false,
                          oscPort        : Int     = DEFAULT_PORT,
@@ -73,14 +74,15 @@ object Main {
                          biphaseF2a     : Float    = f2a,
                          biphaseF2b     : Float    = f2b,
                          // --- SpaceTimbre ---
-                         spaceMinCm    : Float   =    60.0f, // 10.0
-                         spaceMaxCm    : Float   = 12000.0f, // 2000.0
-                         spaceMinFreq  : Float   =   150.0f,
-                         spaceMaxFreq  : Float   = 18000.0f,
-                         spaceAmp      : Float   = -10.0f, // decibels
+                         spaceMinCm     : Float   =    60.0f, // 10.0
+                         spaceMaxCm     : Float   = 12000.0f, // 2000.0
+                         spaceMinFreq   : Float   =   150.0f,
+                         spaceMaxFreq   : Float   = 18000.0f,
+                         spaceAmp       : Float   = -10.0f, // decibels
                          // --- Accelerate ---
-                         accelMicAmp  : Float   = 10.0f,
-                         accelSigAmp  : Float   =  1.0f,
+                         accelMicAmp    : Float   = 10.0f,
+                         accelSigAmp    : Float   =  1.0f,
+                         accelCmpThresh : Float   =  15f,
                        ) extends Config
     with OscNode      .Config
     with DetectSpace  .Config
@@ -90,20 +92,21 @@ object Main {
     with Accelerate   .Config
 
   trait Config {
-    def initCrypMinDur  : Float
-    def initCrypMaxDur  : Float
-    def initAccMinDur   : Float
-    def initAccMaxDur   : Float
-    def verbose         : Boolean
-    def debug           : Boolean
-    def accelMinFactor  : Float
-    def accelMaxFactor  : Float
-    def accelRecTime    : Float
-    def spaceMinDur     : Float
-    def spaceMaxDur     : Float
-    def crypModMinFreq  : Float
-    def crypModMaxFreq  : Float
-    def spaceAmpMaxDamp : Float
+    def initCrypMinDur    : Float
+    def initCrypMaxDur    : Float
+    def initAccMinDur     : Float
+    def initAccMaxDur     : Float
+    def verbose           : Boolean
+    def debug             : Boolean
+    def accelMinFactor    : Float
+    def accelMaxFactor    : Float
+    def accelRecTime      : Float
+    def spaceMinDur       : Float
+    def spaceMaxDur       : Float
+    def crypModMinFreq    : Float
+    def crypModMaxFreq    : Float
+    def spaceAmpMaxDamp   : Float
+    def detectSpacePeriod : Float
   }
 
   type ConfigAll = Config
@@ -165,6 +168,10 @@ object Main {
       )
       val spaceAmpMaxDamp: Opt[Float] = opt(default = Some(default.spaceAmpMaxDamp),
         descr = s"Space-timbre maximum amplitude damping, in decibels (default: ${default.spaceAmpMaxDamp}).",
+      )
+      val detectSpacePeriod: Opt[Float] = opt(default = Some(default.detectSpacePeriod),
+        descr = s"Minimum period between two runs of detect-space, in seconds (default: ${default.detectSpacePeriod}).",
+        validate = x => x > 0.0
       )
 
       // --- OscNode ---
@@ -252,54 +259,59 @@ object Main {
       val accelSigAmp: Opt[Float] = opt(default = Some(default.accelSigAmp),
         descr = s"Acceleration signal boost, linear (default: ${default.accelSigAmp}).",
       )
+      val accelCmpThresh: Opt[Float] = opt(default = Some(default.accelCmpThresh),
+        descr = s"Accelerate output compression threshold in neg.decibels (default: ${default.accelCmpThresh}).",
+      )
 
       verify()
       implicit val config: ConfigAll = ConfigImpl(
         // --- Main ---
-        verbose         = verbose(),
-        debug           = debug(),
-        initCrypMinDur  = initCrypMinDur(),
-        initCrypMaxDur  = initCrypMaxDur(),
-        initAccMinDur   = initAccMinDur(),
-        initAccMaxDur   = initAccMaxDur(),
-        accelMinFactor  = accelMinFactor(),
-        accelMaxFactor  = accelMaxFactor(),
-        accelRecTime    = accelRecTime(),
-        spaceMinDur     = spaceMinDur(),
-        spaceMaxDur     = spaceMaxDur(),
-        crypModMinFreq  = crypModMinFreq(),
-        crypModMaxFreq  = crypModMaxFreq(),
-        spaceAmpMaxDamp = spaceAmpMaxDamp(),
+        verbose           = verbose(),
+        debug             = debug(),
+        initCrypMinDur    = initCrypMinDur(),
+        initCrypMaxDur    = initCrypMaxDur(),
+        initAccMinDur     = initAccMinDur(),
+        initAccMaxDur     = initAccMaxDur(),
+        accelMinFactor    = accelMinFactor(),
+        accelMaxFactor    = accelMaxFactor(),
+        accelRecTime      = accelRecTime(),
+        spaceMinDur       = spaceMinDur(),
+        spaceMaxDur       = spaceMaxDur(),
+        crypModMinFreq    = crypModMinFreq(),
+        crypModMaxFreq    = crypModMaxFreq(),
+        spaceAmpMaxDamp   = spaceAmpMaxDamp(),
+        detectSpacePeriod = detectSpacePeriod(),
         // --- OscNode ---
-        dumpOsc         = dumpOsc(),
-        oscPort         = oscPort(),
-        useIp           = useIp(),
+        dumpOsc           = dumpOsc(),
+        oscPort           = oscPort(),
+        useIp             = useIp(),
         // --- Crypsis ---
-        crypMicAmp      = crypMicAmp(),
-        crypSpeakerAmp  = crypSpeakerAmp(),
-        cmpThreshIn     = cmpThreshIn(),
-        cmpThreshOut    = cmpThreshOut(),
-        crypAchilles    = crypAchilles(),
-        crypModFreq     = crypModFreq(),
+        crypMicAmp        = crypMicAmp(),
+        crypSpeakerAmp    = crypSpeakerAmp(),
+        cmpThreshIn       = cmpThreshIn(),
+        cmpThreshOut      = cmpThreshOut(),
+        crypAchilles      = crypAchilles(),
+        crypModFreq       = crypModFreq(),
         // --- Biphase ---
-        bitPeriod       = bitPeriod(),
-        encAmp          = encAmp(),
-        decAmp2         = decAmp2(),
-        decMicAmp       = decMicAmp(),
-        wlanIf          = wlanIf(),
-        biphaseF1a      = biphaseF1a(),
-        biphaseF1b      = biphaseF1b(),
-        biphaseF2a      = biphaseF2a(),
-        biphaseF2b      = biphaseF2b(),
+        bitPeriod         = bitPeriod(),
+        encAmp            = encAmp(),
+        decAmp2           = decAmp2(),
+        decMicAmp         = decMicAmp(),
+        wlanIf            = wlanIf(),
+        biphaseF1a        = biphaseF1a(),
+        biphaseF1b        = biphaseF1b(),
+        biphaseF2a        = biphaseF2a(),
+        biphaseF2b        = biphaseF2b(),
         // --- SpaceTimbre ---
-        spaceMinCm      = spaceMinCm(),
-        spaceMaxCm      = spaceMaxCm(),
-        spaceMinFreq    = spaceMinFreq(),
-        spaceMaxFreq    = spaceMaxFreq(),
-        spaceAmp        = spaceAmp(),
+        spaceMinCm        = spaceMinCm(),
+        spaceMaxCm        = spaceMaxCm(),
+        spaceMinFreq      = spaceMinFreq(),
+        spaceMaxFreq      = spaceMaxFreq(),
+        spaceAmp          = spaceAmp(),
         // --- Accelerate ---
-        accelMicAmp     = accelMicAmp(),
-        accelSigAmp     = accelSigAmp(),
+        accelMicAmp       = accelMicAmp(),
+        accelSigAmp       = accelSigAmp(),
+        accelCmpThresh    = accelCmpThresh(),
       )
     }
     import p.config

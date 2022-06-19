@@ -50,9 +50,13 @@ object Biphase {
     def decMicAmp : Float
 //    def program   : String
     def wlanIf    : String
+    /** The lower significant frequency in Hz */
     def biphaseF1a: Float
+    /** The lower insignificant frequency in Hz */
     def biphaseF1b: Float
+    /** The upper significant frequency in Hz */
     def biphaseF2a: Float
+    /** The upper insignificant frequency in Hz */
     def biphaseF2b: Float
   }
 

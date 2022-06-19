@@ -29,10 +29,11 @@ class SpaceTimbreStage extends Stage.Running {
   override def start()(implicit tx: T, machine: Machine): Unit = {
     import machine.{config, random, universe}
     // println(s"FROM ${config.spaceAmp} TO ${config.spaceAmp - config.spaceAmpMaxDamp}")
-    val ampDb = random.nextFloat().linLin(0f, 1f, config.spaceAmp, config.spaceAmp - config.spaceAmpMaxDamp)
+    val ampDb     = random.nextFloat().linLin(0f, 1f, config.spaceAmp, config.spaceAmp - config.spaceAmpMaxDamp)
     log.debug(f"space-timbre amp is $ampDb%1.1f dB")
-    val amp   = ampDb.dbAmp
-    val timbre = SpaceTimbre.applyWith(machine.spacePos, amp = amp)
+    val amp       = ampDb.dbAmp
+    val skipFreq  = machine.commFreq.flatMap(tup => tup._1 ::  tup._2 :: Nil).sorted
+    val timbre    = SpaceTimbre.applyWith(machine.spacePos, amp = amp, skipFreq = skipFreq)
     timbre.runner.reactNow { implicit tx => state =>
       if (state.idle) {
         if (timbreRef.swap(None).contains(timbre)) {
