@@ -55,24 +55,10 @@ object Stage {
     override final def run(): Stage.Running = new SpaceTimbreStage
   }
 
-  case object Accelerate extends Stage with Stage.Running {
+  case object Accelerate extends Stage  {
     final val id = 4
 
-    override def stage: Stage = this
-
-    override def run(): Stage.Running = ???
-
-    override def start()(implicit tx: T, machine: Machine): Unit = ()
-
-    def pause ()(implicit tx: T, machine: Machine): Unit = ()
-    def resume()(implicit tx: T, machine: Machine): Unit = ()
-
-    override def release()(implicit tx: T, machine: Machine): Unit = {
-      import machine.universe.scheduler
-      scheduler.schedule(scheduler.time + TimeRef.SampleRate.toLong) { implicit tx =>
-        machine.released(this)
-      }
-    }
+    override def run(): Stage.Running = new AccelerateStage
   }
 
   trait Running {

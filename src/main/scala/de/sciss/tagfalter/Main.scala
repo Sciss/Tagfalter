@@ -33,8 +33,13 @@ object Main {
                          // --- Main ---
                          initCrypMinDur : Float   =  60.0f,
                          initCrypMaxDur : Float   = 180.0f,
+                         initAccMinDur  : Float   =  60.0f,
+                         initAccMaxDur  : Float   = 180.0f,
                          verbose        : Boolean = false,
                          debug          : Boolean = false,
+                         accelMinFactor : Float   = 16f,
+                         accelMaxFactor : Float   = 64f,
+                         accelRecTime   : Float   = 600f,
                          // --- OscNode ---
                          dumpOsc        : Boolean = false,
                          oscPort        : Int     = DEFAULT_PORT,
@@ -56,7 +61,7 @@ object Main {
                          bitPeriod      : Float   = 120.0f,
                          encAmp         : Float   = -20f,
                          decAmp2        : Float   = -10f, // 0.5f,
-                         decMicAmp      : Float   = 30f,  // 4.0f,
+                         decMicAmp      : Float   = 30f, // 4.0f,
                          wlanIf         : String  = "wlan0",
                          biphaseF1a     : Float    = f1a,
                          biphaseF1b     : Float    = f1b,
@@ -82,8 +87,13 @@ object Main {
   trait Config {
     def initCrypMinDur  : Float
     def initCrypMaxDur  : Float
+    def initAccMinDur   : Float
+    def initAccMaxDur   : Float
     def verbose         : Boolean
     def debug           : Boolean
+    def accelMinFactor  : Float
+    def accelMaxFactor  : Float
+    def accelRecTime  : Float
   }
 
   type ConfigAll = Config
@@ -115,6 +125,21 @@ object Main {
       )
       val initCrypMaxDur: Opt[Float] = opt(default = Some(default.initCrypMaxDur),
         descr = s"Initial maximum crypsis duration in seconds (default: ${default.initCrypMaxDur}).",
+      )
+      val initAccMinDur: Opt[Float] = opt(default = Some(default.initAccMinDur),
+        descr = s"Initial minimum acceleration play duration in seconds (default: ${default.initAccMinDur}).",
+      )
+      val initAccMaxDur: Opt[Float] = opt(default = Some(default.initAccMaxDur),
+        descr = s"Initial maximum acceleration play duration in seconds (default: ${default.initAccMaxDur}).",
+      )
+      val accelMinFactor: Opt[Float] = opt(default = Some(default.accelMinFactor),
+        descr = s"Minimum acceleration factor (default: ${default.accelMinFactor}).",
+      )
+      val accelMaxFactor: Opt[Float] = opt(default = Some(default.accelMaxFactor),
+        descr = s"Maximum acceleration factor (default: ${default.accelMaxFactor}).",
+      )
+      val accelRecTime: Opt[Float] = opt(default = Some(default.accelRecTime),
+        descr = s"Acceleration recording time per buffer, in seconds (default: ${default.accelRecTime}).",
       )
 
       // --- OscNode ---
@@ -193,6 +218,11 @@ object Main {
         debug           = debug(),
         initCrypMinDur  = initCrypMinDur(),
         initCrypMaxDur  = initCrypMaxDur(),
+        initAccMinDur   = initAccMinDur(),
+        initAccMaxDur   = initAccMaxDur(),
+        accelMinFactor  = accelMinFactor(),
+        accelMaxFactor  = accelMaxFactor(),
+        accelRecTime    = accelRecTime(),
         // --- OscNode ---
         dumpOsc         = dumpOsc(),
         oscPort         = oscPort(),
