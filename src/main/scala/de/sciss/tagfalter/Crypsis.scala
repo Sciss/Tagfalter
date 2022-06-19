@@ -24,7 +24,6 @@ import org.rogach.scallop.{ScallopConf, ScallopOption => Opt}
 
 import java.io.File
 
-// XXX TODO: attack should be resonated
 object Crypsis {
 
   case class ConfigImpl(

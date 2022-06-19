@@ -54,6 +54,7 @@ object Machine {
     private val accelRecRef     = Ref(Option.empty[Accelerate.RecResult])
     private val accelRecTime    = Ref(0L)
     private val detectSpaceTime = Ref(0L)
+    private val stageSilNext    = Ref[Stage](Stage.Empty)
 
     def start()(implicit tx: T): Unit = {
       targetStage_=(Stage.Crypsis)
@@ -88,7 +89,7 @@ object Machine {
       val running   = st.run()
       runningRef()  = Some(running)
       val timeNow   = universe.scheduler.time
-      val nextSt: Stage = st match {
+      val nextSt0: Stage = st match {
         case Stage.Crypsis =>
           val timeDetectOld = detectSpaceTime()
           if (timeDetectOld == 0L || (timeNow - timeDetectOld) / TimeRef.SampleRate >= config.detectSpacePeriod) {
@@ -103,6 +104,8 @@ object Machine {
 
         case Stage.SpaceTimbre =>
           val timeRec = accelRecTime()
+          // XXX TODO: warning, `accelRecRef` may no longer be the same after the current stage
+          // finishes, once we add another process that occasionally frees the ref!
           if (accelRecRef().isDefined && timeRec != 0L && (timeNow - timeRec) / TimeRef.SampleRate >= config.accelRecTime) {
             Stage.Accelerate
           } else {
@@ -110,7 +113,14 @@ object Machine {
           }
 
         case Stage.Accelerate   => Stage.Crypsis
-        case _                  => Stage.Empty
+        case Stage.Silence      => stageSilNext()
+        case _                  => Stage.Crypsis // Stage.Empty
+      }
+
+      val nextSil = st != Stage.Silence && random.nextFloat() < config.silenceProb
+      val nextSt  = if (!nextSil) nextSt0 else {
+        stageSilNext() = nextSt0
+        Stage.Silence
       }
       targetStageRef() = nextSt
 

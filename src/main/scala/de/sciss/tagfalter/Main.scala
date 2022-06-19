@@ -46,6 +46,13 @@ object Main {
                          crypModMaxFreq : Float   =  0.25f,
                          spaceAmpMaxDamp: Float   = 6.0f, // decibels
                          detectSpacePeriod : Float  = 480f, // in seconds
+                         nodeId         : Int     = -1,
+                         silenceProb    : Float   = 0.1f,
+                         silenceMinDur  : Float   = 30f,
+                         silenceMaxDur  : Float   = 90f,
+                         // --- Silence ---
+                         silenceAmp     : Float   = -30f,
+                         silenceFreq    : Float   = 34f,
                          // --- OscNode ---
                          dumpOsc        : Boolean = false,
                          oscPort        : Int     = DEFAULT_PORT,
@@ -90,6 +97,7 @@ object Main {
     with Biphase      .Config
     with SpaceTimbre  .Config
     with Accelerate   .Config
+    with Silence      .Config
 
   trait Config {
     def initCrypMinDur    : Float
@@ -107,6 +115,12 @@ object Main {
     def crypModMaxFreq    : Float
     def spaceAmpMaxDamp   : Float
     def detectSpacePeriod : Float
+    def nodeId            : Int
+    def silenceProb       : Float
+    def silenceMinDur     : Float
+    def silenceMaxDur     : Float
+    def silenceAmp        : Float
+    def silenceFreq       : Float
   }
 
   type ConfigAll = Config
@@ -116,6 +130,7 @@ object Main {
     with Biphase    .Config
     with SpaceTimbre.Config
     with Accelerate .Config
+    with Silence    .Config
 
   val log: Logger = new Logger("tag")
 
@@ -171,7 +186,30 @@ object Main {
       )
       val detectSpacePeriod: Opt[Float] = opt(default = Some(default.detectSpacePeriod),
         descr = s"Minimum period between two runs of detect-space, in seconds (default: ${default.detectSpacePeriod}).",
-        validate = x => x > 0.0
+        validate = x => x > 0.0f
+      )
+      val nodeId: Opt[Int] = opt(
+        descr = "Node-id or -1 (default) to automatically detect via 'uname'.",
+      )
+      val silenceProb: Opt[Float] = opt(default = Some(default.silenceProb),
+        descr = s"Silent stage probability 0 to 1 (default: ${default.silenceProb}).",
+        validate = x => x >= 0f && x <= 1f
+      )
+      val silenceMinDur: Opt[Float] = opt(default = Some(default.silenceMinDur),
+        descr = s"Silent minimum duration, in seconds (default: ${default.silenceMinDur}).",
+        validate = x => x > 0f
+      )
+      val silenceMaxDur: Opt[Float] = opt(default = Some(default.silenceMaxDur),
+        descr = s"Silent maximum duration, in seconds (default: ${default.silenceMaxDur}).",
+        validate = x => x > 0f
+      )
+
+      // --- Silence ---
+      val silenceAmp: Opt[Float] = opt(default = Some(default.silenceAmp),
+        descr = s"Silent click amp, in decibels (default: ${default.silenceAmp}).",
+      )
+      val silenceFreq: Opt[Float] = opt(default = Some(default.silenceFreq),
+        descr = s"Silent click frequency, in Hz (default: ${default.silenceFreq}).",
       )
 
       // --- OscNode ---
@@ -281,6 +319,13 @@ object Main {
         crypModMaxFreq    = crypModMaxFreq(),
         spaceAmpMaxDamp   = spaceAmpMaxDamp(),
         detectSpacePeriod = detectSpacePeriod(),
+        nodeId            = nodeId.getOrElse(autoNodeId()),
+        silenceProb       = silenceProb(),
+        silenceMinDur     = silenceMinDur(),
+        silenceMaxDur     = silenceMaxDur(),
+        // --- Silence ---
+        silenceAmp        = silenceAmp(),
+        silenceFreq       = silenceFreq(),
         // --- OscNode ---
         dumpOsc           = dumpOsc(),
         oscPort           = oscPort(),
@@ -318,9 +363,22 @@ object Main {
     run()
   }
 
+  def autoNodeId(): Int = {
+    import sys.process._
+    val nodeName = Seq("uname", "-n").!!.trim
+    if (nodeName == "aleph") 0 else if (nodeName.startsWith("klangpi")) {
+      nodeName.substring("klangpi".length).toInt % 32
+    } else {
+      Console.err.println(s"WARNING: Cannot parse node-name $nodeName. Falling back to node-id 0")
+      0
+    }
+  }
+
   def run()(implicit config: ConfigAll): Unit = {
     if (config.verbose) log.level = Level.Info
     if (config.debug  ) log.level = Level.Debug
+
+    log.info(s"Node-id is ${config.nodeId}")
 
     boot { implicit tx => implicit universe => _ /*s*/ =>
       Machine()

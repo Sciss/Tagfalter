@@ -28,7 +28,7 @@ class DetectSpaceStage extends Stage.Running {
   override def start()(implicit tx: T, machine: Machine): Unit = {
     import machine.{config, universe, random}
     Biphase.send(Array(Biphase.CMD_HOLD_ON)) { implicit tx =>
-      log.info("Biphase send finished.")
+      log.info("Biphase HOLD send finished.")
       // implicit val cfgDetect = DetectSpace.ConfigImpl()
       val sch  = universe.scheduler
       val INIT_DELAY = random.nextFloat().linLin(0f, 1f, INIT_DELAY_MIN, INIT_DELAY_MAX)
@@ -38,6 +38,7 @@ class DetectSpaceStage extends Stage.Running {
           // log.info(resSpace.posCm.mkString("Pos [cm]: ", ", ", ""))
           //        spaceTimbre(resSpace.posCm)
           machine.spacePos_=(resSpace.posCm)
+
           release()
         }
       }
