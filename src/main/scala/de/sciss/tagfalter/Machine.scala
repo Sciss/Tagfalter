@@ -103,6 +103,7 @@ object Machine {
 
     override def spacePos_=(value: Vec[Float])(implicit tx: T): Unit = {
       stagePosRef() = value
+      random.setSeed(value.sum.toLong)
       // we launch accel-rec after the first space info becomes available
       if (accelRecRef().isEmpty) {
         val mn          = value.min

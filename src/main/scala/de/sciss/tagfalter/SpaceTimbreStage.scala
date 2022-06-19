@@ -40,7 +40,7 @@ class SpaceTimbreStage extends Stage.Running {
     timbreRef() = Some(timbre)
 
     val sch     = universe.scheduler
-    val dlySec  = random.nextDouble().linLin(0.0, 1.0, 30.0, 90.0)
+    val dlySec  = random.nextDouble().linLin(0.0, 1.0, config.spaceMinDur, config.spaceMaxDur)
     log.info(f"SpaceTimbre duration in seconds: $dlySec%1.1f")
     val dlyFr   = (dlySec * TimeRef.SampleRate).toLong
     val token   = sch.schedule(sch.time + dlyFr) { implicit tx =>

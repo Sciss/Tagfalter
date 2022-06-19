@@ -23,6 +23,28 @@ import de.sciss.tagfalter.Main.{T, log}
 import org.rogach.scallop.{ScallopConf, ScallopOption => Opt}
 
 object SpaceTimbre {
+
+  case class ConfigImpl(
+                         dur : Float = 30f,
+                         numPos        : Int     = 5,
+                         debug         : Boolean = false,
+                         spaceMinCm    : Float   =    60.0f, // 10.0
+                         spaceMaxCm    : Float   = 12000.0f, // 2000.0
+                         spaceMinFreq  : Float   =   150.0f,
+                         spaceMaxFreq  : Float   = 18000.0f,
+                         spaceAmp      : Float   = -6.0f, // decibels
+
+                       ) extends Config
+
+  trait Config {
+    def debug       : Boolean
+    def spaceMinCm  : Float
+    def spaceMaxCm  : Float
+    def spaceMinFreq: Float
+    def spaceMaxFreq: Float
+    def spaceAmp    : Float
+  }
+
   def main(args: Array[String]): Unit = {
     Main.printInfo()
 
@@ -47,10 +69,13 @@ object SpaceTimbre {
         descr = s"Maximum assumed spatial position in cm (default: ${default.spaceMaxCm}).",
       )
       val spaceMinFreq: Opt[Float] = opt(default = Some(default.spaceMinFreq),
-        descr = s"Minimum assumed frequency in Hz (default: ${default.spaceMinFreq}).",
+        descr = s"Minimum assumed space-timbre frequency in Hz (default: ${default.spaceMinFreq}).",
       )
       val spaceMaxFreq: Opt[Float] = opt(default = Some(default.spaceMaxFreq),
-        descr = s"Maximum assumed frequency in Hz (default: ${default.spaceMaxFreq}).",
+        descr = s"Maximum assumed space-timbre frequency in Hz (default: ${default.spaceMaxFreq}).",
+      )
+      val spaceAmp: Opt[Float] = opt(default = Some(default.spaceAmp),
+        descr = s"Space-timbre amplitude, in decibels (default: ${default.spaceAmp}).",
       )
 
       verify()
@@ -62,6 +87,7 @@ object SpaceTimbre {
         spaceMaxCm    = spaceMaxCm(),
         spaceMinFreq  = spaceMinFreq(),
         spaceMaxFreq  = spaceMaxFreq(),
+        spaceAmp      = spaceAmp(),
       )
     }
     import p.config
@@ -72,27 +98,6 @@ object SpaceTimbre {
     def runner: Runner[T]
 
     def release()(implicit tx: T): Unit
-  }
-
-  case class ConfigImpl(
-                        dur : Float = 30f,
-                        numPos        : Int     = 5,
-                        debug         : Boolean = false,
-                        spaceMinCm    : Float   =    60.0f, // 10.0
-                        spaceMaxCm    : Float   = 12000.0f, // 2000.0
-                        spaceMinFreq  : Float   =   150.0f,
-                        spaceMaxFreq  : Float   = 18000.0f,
-                        spaceAmp      : Float   = 0.0f, // decibels
-
-                       ) extends Config
-
-  trait Config {
-    def debug       : Boolean
-    def spaceMinCm  : Float
-    def spaceMaxCm  : Float
-    def spaceMinFreq: Float
-    def spaceMaxFreq: Float
-    def spaceAmp    : Float
   }
 
   def run()(implicit config: ConfigImpl): Unit = {

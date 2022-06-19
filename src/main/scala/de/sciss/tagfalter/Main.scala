@@ -40,6 +40,8 @@ object Main {
                          accelMinFactor : Float   = 16f,
                          accelMaxFactor : Float   = 64f,
                          accelRecTime   : Float   = 600f,
+                         spaceMinDur    : Float   = 32f,
+                         spaceMaxDur    : Float   = 80f,
                          // --- OscNode ---
                          dumpOsc        : Boolean = false,
                          oscPort        : Int     = DEFAULT_PORT,
@@ -72,7 +74,7 @@ object Main {
                          spaceMaxCm    : Float   = 12000.0f, // 2000.0
                          spaceMinFreq  : Float   =   150.0f,
                          spaceMaxFreq  : Float   = 18000.0f,
-                         spaceAmp      : Float   = 0.0f, // decibels
+                         spaceAmp      : Float   = -6.0f, // decibels
                          // --- Accelerate ---
                          accelMicAmp  : Float   = 10.0f,
                          accelSigAmp  : Float   =  1.0f,
@@ -93,7 +95,9 @@ object Main {
     def debug           : Boolean
     def accelMinFactor  : Float
     def accelMaxFactor  : Float
-    def accelRecTime  : Float
+    def accelRecTime    : Float
+    def spaceMinDur     : Float
+    def spaceMaxDur     : Float
   }
 
   type ConfigAll = Config
@@ -140,6 +144,12 @@ object Main {
       )
       val accelRecTime: Opt[Float] = opt(default = Some(default.accelRecTime),
         descr = s"Acceleration recording time per buffer, in seconds (default: ${default.accelRecTime}).",
+      )
+      val spaceMinDur: Opt[Float] = opt(default = Some(default.spaceMinDur),
+        descr = s"Space-timbre minimum duration, in seconds (default: ${default.spaceMinDur}).",
+      )
+      val spaceMaxDur: Opt[Float] = opt(default = Some(default.spaceMaxDur),
+        descr = s"Space-timbre maximum duration, in seconds (default: ${default.spaceMaxDur}).",
       )
 
       // --- OscNode ---
@@ -203,6 +213,23 @@ object Main {
         descr = s"Codec frequency 2b, linear (default: ${default.biphaseF2b}).",
       )
 
+      // --- SpaceTimbre ---
+      val spaceMinCm: Opt[Float] = opt(default = Some(default.spaceMinCm),
+        descr = s"Minimum assumed spatial position in cm (default: ${default.spaceMinCm}).",
+      )
+      val spaceMaxCm: Opt[Float] = opt(default = Some(default.spaceMaxCm),
+        descr = s"Maximum assumed spatial position in cm (default: ${default.spaceMaxCm}).",
+      )
+      val spaceMinFreq: Opt[Float] = opt(default = Some(default.spaceMinFreq),
+        descr = s"Minimum assumed space-timbre frequency in Hz (default: ${default.spaceMinFreq}).",
+      )
+      val spaceMaxFreq: Opt[Float] = opt(default = Some(default.spaceMaxFreq),
+        descr = s"Maximum assumed space-timbre frequency in Hz (default: ${default.spaceMaxFreq}).",
+      )
+      val spaceAmp: Opt[Float] = opt(default = Some(default.spaceAmp),
+        descr = s"Space-timbre amplitude, in decibels (default: ${default.spaceAmp}).",
+      )
+
       // --- Accelerate ---
       val accelMicAmp: Opt[Float] = opt(default = Some(default.accelMicAmp),
         descr = s"Acceleration microphone boost, linear (default: ${default.accelMicAmp}).",
@@ -223,6 +250,8 @@ object Main {
         accelMinFactor  = accelMinFactor(),
         accelMaxFactor  = accelMaxFactor(),
         accelRecTime    = accelRecTime(),
+        spaceMinDur     = spaceMinDur(),
+        spaceMaxDur     = spaceMaxDur(),
         // --- OscNode ---
         dumpOsc         = dumpOsc(),
         oscPort         = oscPort(),
@@ -245,6 +274,12 @@ object Main {
         biphaseF2a      = biphaseF2a(),
         biphaseF2b      = biphaseF2b(),
         // --- SpaceTimbre ---
+        spaceMinCm      = spaceMinCm(),
+        spaceMaxCm      = spaceMaxCm(),
+        spaceMinFreq    = spaceMinFreq(),
+        spaceMaxFreq    = spaceMaxFreq(),
+        spaceAmp        = spaceAmp(),
+        // --- Accelerate ---
         accelMicAmp     = accelMicAmp(),
         accelSigAmp     = accelSigAmp(),
       )

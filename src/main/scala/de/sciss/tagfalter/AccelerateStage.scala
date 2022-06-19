@@ -13,7 +13,6 @@
 
 package de.sciss.tagfalter
 
-import de.sciss.lucre.Disposable
 import de.sciss.lucre.Txn.peer
 import de.sciss.numbers.Implicits.doubleNumberWrapper
 import de.sciss.proc.TimeRef
