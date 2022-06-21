@@ -15,7 +15,7 @@ package de.sciss.tagfalter
 
 import de.sciss.lucre.Txn.peer
 import de.sciss.lucre.{Random, RandomObj}
-import de.sciss.numbers.Implicits.floatNumberWrapper
+import de.sciss.numbers.Implicits._
 import de.sciss.proc.{TimeRef, Universe}
 import de.sciss.synth.UGenSource.Vec
 import de.sciss.tagfalter.Biphase.MessageSpaceId
@@ -57,9 +57,10 @@ object Machine {
     private val accelRecRef     = Ref(Option.empty[Accelerate.RecResult])
     private val accelRecTime    = Ref(0L)
     private val detectSpaceTime = Ref(0L)
-    private val stageSilNext    = Ref[Stage](Stage.Empty)
+    private val stageSaveNext   = Ref[Stage](Stage.Empty)
     private val rcvSpaceId      = Ref(0L)
     private val timeSpaceId     = Ref(0L)
+    private val commFreqSeqRef  = Ref[Vec[Float]](Vec.empty)
 
     // 6 bytes in `MessageSpaceId` times 10 bits per byte, one second extra time out
     private val TimeOutSpaceId  = ((config.bitPeriod/1000 * (10 * MessageSpaceId.NumBytes) + 1f) * TimeRef.SampleRate).toLong
@@ -99,7 +100,7 @@ object Machine {
               val rcvSpaceIdNew = payloadNew | byteCntNew
               rcvSpaceId()      = rcvSpaceIdNew
               if (byteCntNew == MessageSpaceId.NumBytes) {
-                println(s"payloadNew = $payloadNew")
+                // println(s"payloadNew = $payloadNew")
                 val nodeId  =  ((payloadNew >> (5 * 8)) & 0xFF).toInt
                 val f1      = (((payloadNew >> (4 * 8)) & 0x7F).toInt << 7) |
                                ((payloadNew >> (3 * 8)) & 0x7F).toInt
@@ -117,8 +118,24 @@ object Machine {
       }
     }
 
-    override def commFreq(implicit tx: T): Vec[(Float, Float)] =
-      Vec((config.biphaseF1a, config.biphaseF2a))
+    override def allCommFreq(implicit tx: T): Vec[Float] = {
+      val commFreqSeq = commFreqSeqRef()
+      val xs = Vec(config.biphaseF1a, config.biphaseF2a)
+      if (commFreqSeq.isEmpty) xs else xs :+ commFreqSeq(0) :+ commFreqSeq(1)
+    }
+
+    override def otherCommFreq(implicit tx: T): Vec[Float] =
+      Vec(config.biphaseF1a, config.biphaseF2a)
+
+    override def thisCommFreq(implicit tx: T): Option[Biphase.Freq] = {
+      val commFreqSeq = commFreqSeqRef()
+      if (commFreqSeq.isEmpty) None else {
+        val f = Biphase.Freq(
+          f1a = commFreqSeq(0), f1b = commFreqSeq(2), f2a = commFreqSeq(1), f2b = commFreqSeq(3)
+        )
+        Some(f)
+      }
+    }
 
     override def accelerateRec(implicit tx: T): Option[Accelerate.RecResult] =
       accelRecRef()
@@ -169,15 +186,21 @@ object Machine {
             Stage.Crypsis
           }
 
-        case Stage.Accelerate   => Stage.Crypsis
-        case Stage.Silence      => stageSilNext()
-        case _                  => Stage.Crypsis // Stage.Empty
+        case Stage.Accelerate           => Stage.Crypsis
+        case Stage.Silence | Stage.Joy  => stageSaveNext()
+        case _                          => Stage.Crypsis // Stage.Empty
       }
 
       val nextSil = st != Stage.Silence && random.nextFloat() < config.silenceProb
-      val nextSt  = if (!nextSil) nextSt0 else {
-        stageSilNext() = nextSt0
+      val nextJoy = !nextSil && st != Stage.Joy && random.nextFloat() < config.joyProb
+      val nextSt  = if (nextSil) {
+        stageSaveNext() = nextSt0
         Stage.Silence
+      } else if (nextJoy) {
+        stageSaveNext() = nextSt0
+        Stage.Joy
+      } else {
+        nextSt0
       }
       targetStageRef() = nextSt
 
@@ -187,9 +210,67 @@ object Machine {
 
     override def spacePos(implicit tx: T): Vec[Float] = stagePosRef()
 
+    private def shuffleN(xs: Vec[Float], n: Int)(implicit tx: T): Vec[Float] = {
+      val buf = xs.toArray
+
+      def swap(i1: Int, i2: Int): Unit = {
+        val tmp = buf(i1)
+        buf(i1) = buf(i2)
+        buf(i2) = tmp
+      }
+
+      var m = buf.length
+      while (m >= 2) {
+        val k = random.nextInt(m)
+        m -= 1
+        swap(m, k)
+      }
+
+      val res = Vector.newBuilder[Float]
+      res.sizeHint(n)
+      var i = 0
+      while (i < n) {
+        res += buf(i)
+        i += 1
+      }
+      res.result()
+    }
+
     override def spacePos_=(value: Vec[Float])(implicit tx: T): Unit = {
       stagePosRef() = value
       random.setSeed(value.sum.toLong)
+
+      // calculate comm freq based on this
+      val commPosSeq: Vec[Float] = {
+        val sh = shuffleN(value, 4).sorted
+        val d1 = sh(1) - sh(0)
+        val d2 = sh(2) - sh(1)
+        val d3 = sh(3) - sh(2)
+        if (d1 <= d2 && d1 <= d3) sh
+        else if (d2 <= d1 && d2 <= d3) {
+          Vector(sh(1), sh(2), sh(3), sh(0))
+        } else {
+          Vector(sh(2), sh(3), sh(0), sh(1))
+        }
+      }
+      val skipFreq    = otherCommFreq /*.flatMap(tup => tup._1 ::  tup._2 :: Nil)*/.sorted
+      val commFreqSeq = commPosSeq.map { cm =>
+        import config.{commMaxFreq, commMinFreq, spaceMaxCm, spaceMinCm}
+        val cmClip  = cm.clip(spaceMinCm, spaceMaxCm)
+        val f0      = cmClip.linLin(spaceMinCm, spaceMaxCm, commMinFreq, commMaxFreq)
+        skipFreq.foldLeft(f0) { (f1, fBlock) =>
+          // XXX TODO: should we use relative frequencies, such as `fBlock * 0.99` ?
+          //  I think Goertzel is on a linear spectrum, so probably fine like this
+          val fBlockLo = fBlock - 100f
+          val fBlockHi = fBlock + 100f
+          if (f1 >= fBlockLo && f1 <= fBlockHi) fBlockHi else f1
+        }
+      }
+      log.info(s"This comm freq $commFreqSeq")
+      commFreqSeqRef() = commFreqSeq
+
+//      val f1a = p1a.linLin(spaceMinCm, spaceMaxCm, idMinFreq, idMaxFreq)
+
       // we launch accel-rec after the first space info becomes available
       if (accelRecRef().isEmpty) {
         val mn          = value.min
@@ -237,7 +318,14 @@ trait Machine {
 
   /** Currently known communication frequencies in Hz,
     * including the global ones; thus always returns at
-    * least one tuple.
+    * least two elements (one tuple f1a, f2a).
     */
-  def commFreq(implicit tx: T): Vec[(Float, Float)]
+  def allCommFreq(implicit tx: T): Vec[Float]
+
+  /** Currently known communication frequencies in Hz,
+   * including the global ones, but not the own individual frequencies.
+   */
+  def otherCommFreq(implicit tx: T): Vec[Float]
+
+  def thisCommFreq(implicit tx: T): Option[Biphase.Freq]
 }

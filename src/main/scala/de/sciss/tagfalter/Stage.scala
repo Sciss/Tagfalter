@@ -67,6 +67,12 @@ object Stage {
     override def run(): Stage.Running = new SilenceStage
   }
 
+  case object Joy extends Stage {
+    final val id = 6
+
+    override def run(): Stage.Running = new JoyStage
+  }
+
   trait Running {
     def stage: Stage
 

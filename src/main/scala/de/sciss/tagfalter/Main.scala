@@ -50,6 +50,9 @@ object Main {
                          silenceProb    : Float   = 0.1f,
                          silenceMinDur  : Float   = 30f,
                          silenceMaxDur  : Float   = 90f,
+                         commMinFreq    : Float   =   700f,
+                         commMaxFreq    : Float   = 18000f,
+                         joyProb        : Float   = 0.05f,
                          // --- Silence ---
                          silenceAmp     : Float   = -30f,
                          silenceFreq    : Float   = 34f,
@@ -121,6 +124,9 @@ object Main {
     def silenceMaxDur     : Float
     def silenceAmp        : Float
     def silenceFreq       : Float
+    def commMinFreq       : Float
+    def commMaxFreq       : Float
+    def joyProb           : Float
   }
 
   type ConfigAll = Config
@@ -202,6 +208,16 @@ object Main {
       val silenceMaxDur: Opt[Float] = opt(default = Some(default.silenceMaxDur),
         descr = s"Silent maximum duration, in seconds (default: ${default.silenceMaxDur}).",
         validate = x => x > 0f
+      )
+      val commMinFreq: Opt[Float] = opt(default = Some(default.commMinFreq),
+        descr = s"Minimum space-id communication frequency in Hz (default: ${default.commMinFreq}).",
+      )
+      val commMaxFreq: Opt[Float] = opt(default = Some(default.commMaxFreq),
+        descr = s"Maximum space-id communication frequency in Hz (default: ${default.commMaxFreq}).",
+      )
+      val joyProb: Opt[Float] = opt(default = Some(default.joyProb),
+        descr = s"Joy stage probability 0 to 1 (default: ${default.joyProb}).",
+        validate = x => x >= 0f && x <= 1f
       )
 
       // --- Silence ---
@@ -323,6 +339,9 @@ object Main {
         silenceProb       = silenceProb(),
         silenceMinDur     = silenceMinDur(),
         silenceMaxDur     = silenceMaxDur(),
+        commMinFreq       = commMinFreq(),
+        commMaxFreq       = commMaxFreq(),
+        joyProb           = joyProb(),
         // --- Silence ---
         silenceAmp        = silenceAmp(),
         silenceFreq       = silenceFreq(),

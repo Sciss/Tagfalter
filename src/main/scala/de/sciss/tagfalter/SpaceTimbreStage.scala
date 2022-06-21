@@ -32,7 +32,7 @@ class SpaceTimbreStage extends Stage.Running {
     val ampDb     = random.nextFloat().linLin(0f, 1f, config.spaceAmp, config.spaceAmp - config.spaceAmpMaxDamp)
     log.debug(f"space-timbre amp is $ampDb%1.1f dB")
     val amp       = ampDb.dbAmp
-    val skipFreq  = machine.commFreq.flatMap(tup => tup._1 ::  tup._2 :: Nil).sorted
+    val skipFreq  = machine.allCommFreq /*.flatMap(tup => tup._1 ::  tup._2 :: Nil)*/.sorted
     val timbre    = SpaceTimbre.applyWith(machine.spacePos, amp = amp, skipFreq = skipFreq)
     timbre.runner.reactNow { implicit tx => state =>
       if (state.idle) {
