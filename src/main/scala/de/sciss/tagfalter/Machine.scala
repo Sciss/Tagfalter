@@ -18,6 +18,7 @@ import de.sciss.lucre.{Random, RandomObj}
 import de.sciss.numbers.Implicits.floatNumberWrapper
 import de.sciss.proc.{TimeRef, Universe}
 import de.sciss.synth.UGenSource.Vec
+import de.sciss.tagfalter.Biphase.MessageSpaceId
 import de.sciss.tagfalter.Main.{ConfigAll, T, log}
 
 import scala.concurrent.stm.Ref
@@ -42,6 +43,8 @@ object Machine {
     res
   }
 
+  private val HEX = "0123456789ABCDEF"
+
   private final class Impl(val random: Random[T])(implicit val universe: Universe[T], val config: ConfigAll)
     extends Machine {
 
@@ -55,9 +58,63 @@ object Machine {
     private val accelRecTime    = Ref(0L)
     private val detectSpaceTime = Ref(0L)
     private val stageSilNext    = Ref[Stage](Stage.Empty)
+    private val rcvSpaceId      = Ref(0L)
+    private val timeSpaceId     = Ref(0L)
+
+    // 6 bytes in `MessageSpaceId` times 10 bits per byte, one second extra time out
+    private val TimeOutSpaceId  = ((config.bitPeriod/1000 * (10 * MessageSpaceId.NumBytes) + 1f) * TimeRef.SampleRate).toLong
 
     def start()(implicit tx: T): Unit = {
+      startBiphaseRcv()
       targetStage_=(Stage.Crypsis)
+    }
+
+    private def received(m: Biphase.Message)(implicit tx: T): Unit = {
+      log.info(s"Received $m")
+    }
+
+    private def startBiphaseRcv()(implicit tx: T): Unit = {
+      /*val rcvGlobal =*/ Biphase.receive(f1 = config.biphaseF1a, f2 = config.biphaseF2a) { implicit tx => byte =>
+        // if (byte == Biphase.CMD_HOLD_ON)
+        val hexHi = (byte >> 4) & 0x0F
+        val hexLo =  byte       & 0x0F
+        log.debug(s"Received global comm 0x${HEX(hexHi)}${HEX(hexLo)}")
+        val now = universe.scheduler.time
+        if (byte == Biphase.CMD_HOLD_ON) {
+          rcvSpaceId()  = 0L
+          received(Biphase.MessageHoldOn)
+
+        } else if (byte == Biphase.CMD_SPACE_ID) {
+          rcvSpaceId()  = 1L
+          timeSpaceId() = now
+
+        } else {
+          val rcvSpaceIdOld = rcvSpaceId()
+          val byteCntOld = (rcvSpaceIdOld & 0xFF).toInt
+          if (byteCntOld > 0 && byteCntOld < MessageSpaceId.NumBytes) {
+            if (now - timeSpaceId() < TimeOutSpaceId) {
+              val payloadOld    = rcvSpaceIdOld & 0xFFFFFFFFFFFF00L
+              val payloadNew    = (payloadOld | (byte & 0xFF)) << 8
+              val byteCntNew    = byteCntOld + 1
+              val rcvSpaceIdNew = payloadNew | byteCntNew
+              rcvSpaceId()      = rcvSpaceIdNew
+              if (byteCntNew == MessageSpaceId.NumBytes) {
+                println(s"payloadNew = $payloadNew")
+                val nodeId  =  ((payloadNew >> (5 * 8)) & 0xFF).toInt
+                val f1      = (((payloadNew >> (4 * 8)) & 0x7F).toInt << 7) |
+                               ((payloadNew >> (3 * 8)) & 0x7F).toInt
+                val f2      = (((payloadNew >> (2 * 8)) & 0x7F).toInt << 7) |
+                               ((payloadNew >> (1 * 8)) & 0x7F).toInt
+                val mId = Biphase.MessageSpaceId(nodeId = nodeId, f1 = f1, f2 = f2)
+                received(mId)
+              }
+            } else {
+              log.debug(s"Global comm time out")
+              rcvSpaceId() = 0L
+            }
+          }
+        }
+      }
     }
 
     override def commFreq(implicit tx: T): Vec[(Float, Float)] =

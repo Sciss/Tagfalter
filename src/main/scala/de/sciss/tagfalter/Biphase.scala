@@ -16,7 +16,7 @@ package de.sciss.tagfalter
 import de.sciss.lucre.Disposable
 import de.sciss.lucre.Txn.peer
 import de.sciss.lucre.synth.{Buffer, Synth}
-import de.sciss.numbers.Implicits.floatNumberWrapper
+import de.sciss.numbers.Implicits._
 import de.sciss.proc
 import de.sciss.proc.{SoundProcesses, TimeRef, Universe}
 import de.sciss.synth.UGenSource.Vec
@@ -43,6 +43,7 @@ object Biphase {
                        ) extends Config
 
   trait Config {
+    /** Bit encoding period in milliseconds */
     def bitPeriod : Float
     def debug     : Boolean
     def encAmp    : Float
@@ -59,8 +60,6 @@ object Biphase {
     /** The upper insignificant frequency in Hz */
     def biphaseF2b: Float
   }
-
-  final val CMD_HOLD_ON = 0x80.toByte
 
   def main(args: Array[String]): Unit = {
     Main.printInfo()
@@ -138,7 +137,7 @@ object Biphase {
           f2a = config.biphaseF2a, f2b = config.biphaseF2b
         )
         if (config.program == "dec" || config.program == "both") {
-          receive(/*s*/) { implicit tx => byte =>
+          receive(f1 = config.biphaseF1a, f2 = config.biphaseF2a) { implicit tx => byte =>
             tx.afterCommit {
               val st = s"0x${((byte >> 8) & 0xF).toHexString}${(byte & 0xF).toHexString}"
               println(st)
@@ -273,11 +272,49 @@ object Biphase {
     }
   }
 
-  trait Receive extends Disposable[T] {
+  final val CMD_HOLD_ON   = 0x80.toByte
+  final val CMD_SPACE_ID  = 0x83.toByte
+  final val CMD_JOY       = 0x8C.toByte
 
+  sealed trait Message { def encode: Array[Byte] }
+
+  case object MessageHoldOn extends Message {
+    override def encode: Array[Byte] = {
+      val arr = new Array[Byte](1)
+      arr(0)  = CMD_HOLD_ON
+      arr
+    }
   }
 
-  def receive(/*s: Server*/ /*, freq: Freq = globalFreq*/)(consume: T => Byte => Unit)
+  object MessageSpaceId {
+    final val NumBytes = 6
+  }
+  final case class MessageSpaceId(nodeId: Int, f1: Int, f2: Int) extends Message {
+    override def encode: Array[Byte] = {
+      val arr = new Array[Byte](6)
+      arr(0)  = CMD_SPACE_ID
+      arr(1)  = nodeId.toByte
+      val f1c = f1.clip(0, 0x3FFF)
+      val f2c = f2.clip(0, 0x3FFF)
+      arr(2)  = ((f1c >> 7) & 0x7F).toByte
+      arr(3)  = ( f1c       & 0x7F).toByte
+      arr(4)  = ((f2c >> 7) & 0x7F).toByte
+      arr(5)  = ( f2c       & 0x7F).toByte
+      arr
+    }
+  }
+  final case class MessageJoy(nodeId: Int) extends Message {
+    override def encode: Array[Byte] = {
+      val arr = new Array[Byte](2)
+      arr(0)  = CMD_JOY
+      arr(1)  = nodeId.toByte
+      arr
+    }
+  }
+
+  trait Receive extends Disposable[T]
+
+  def receive(f1: Float, f2: Float)(consume: T => Byte => Unit)
              (implicit tx: T, config: Config, universe: Universe[T]): Receive = {
     val s = universe.auralContext.get.server
 
@@ -287,8 +324,8 @@ object Biphase {
       import de.sciss.synth.ugen.{DiskIn => _, PartConv => _, _}
       // version: 06-Jun-2022
 
-      val f1        = config.biphaseF1a // f1a // 4240.0 // "freq-space".kr(1000) // Hz
-      val f2        = config.biphaseF2a // f2a // 11120.0 // "freq-mark" .kr(1200) // Hz
+//      val f1        = config.biphaseF1a // f1a // 4240.0 // "freq-space".kr(1000) // Hz
+//      val f2        = config.biphaseF2a // f2a // 11120.0 // "freq-mark" .kr(1200) // Hz
       val bitPeriod = config.bitPeriod // 120.0 // 160.0 // 80.0 // "bit-period".kr(40.0) // ms
       val CD        = ControlDur.ir
       val bitLen    = bitPeriod / 1000.0 * SR

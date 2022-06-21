@@ -15,6 +15,7 @@ package de.sciss.tagfalter
 
 import de.sciss.numbers.Implicits._
 import de.sciss.proc.TimeRef
+import de.sciss.tagfalter.Biphase.{MessageHoldOn, MessageSpaceId}
 import de.sciss.tagfalter.Main.{T, log}
 
 class DetectSpaceStage extends Stage.Running {
@@ -27,7 +28,7 @@ class DetectSpaceStage extends Stage.Running {
 
   override def start()(implicit tx: T, machine: Machine): Unit = {
     import machine.{config, universe, random}
-    Biphase.send(Array(Biphase.CMD_HOLD_ON)) { implicit tx =>
+    Biphase.send(MessageHoldOn.encode) { implicit tx =>
       log.info("Biphase HOLD send finished.")
       // implicit val cfgDetect = DetectSpace.ConfigImpl()
       val sch  = universe.scheduler
@@ -39,7 +40,12 @@ class DetectSpaceStage extends Stage.Running {
           //        spaceTimbre(resSpace.posCm)
           machine.spacePos_=(resSpace.posCm)
 
-          release()
+          val f1  = 10000 // XXX TODO
+          val f2  = 12000 // XXX TODO
+          val mId = MessageSpaceId(nodeId = config.nodeId, f1 = f1, f2 = f2)
+          Biphase.send(mId.encode) { implicit tx =>
+            release()
+          }
         }
       }
     }
@@ -55,6 +61,6 @@ class DetectSpaceStage extends Stage.Running {
     }
   }
 
-  override def pause  ()(implicit tx: T, machine: Machine): Unit = ()
-  override def resume ()(implicit tx: T, machine: Machine): Unit = ()
+  override def pause  ()(implicit tx: T, machine: Machine): Unit = () // XXX TODO
+  override def resume ()(implicit tx: T, machine: Machine): Unit = () // XXX TODO
 }
