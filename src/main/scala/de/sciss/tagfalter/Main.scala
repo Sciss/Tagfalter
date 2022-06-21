@@ -45,14 +45,14 @@ object Main {
                          crypModMinFreq : Float   =  0.07f,
                          crypModMaxFreq : Float   =  0.25f,
                          spaceAmpMaxDamp: Float   = 6.0f, // decibels
-                         detectSpacePeriod : Float  = 480f, // in seconds
+                         detectSpacePeriod : Float  = 600f, // 480f, // in seconds
                          nodeId         : Int     = -1,
-                         silenceProb    : Float   = 0.1f,
+                         silenceProb    : Float   = 0.15f,
                          silenceMinDur  : Float   = 30f,
                          silenceMaxDur  : Float   = 90f,
                          commMinFreq    : Float   =   700f,
                          commMaxFreq    : Float   = 18000f,
-                         joyProb        : Float   = 0.05f,
+                         joyProb        : Float   = 0.1f,
                          // --- Silence ---
                          silenceAmp     : Float   = -30f,
                          silenceFreq    : Float   = 34f,

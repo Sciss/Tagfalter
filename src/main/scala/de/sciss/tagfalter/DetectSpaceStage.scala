@@ -39,9 +39,9 @@ class DetectSpaceStage extends Stage.Running {
           // log.info(resSpace.posCm.mkString("Pos [cm]: ", ", ", ""))
           //        spaceTimbre(resSpace.posCm)
           machine.spacePos_=(resSpace.posCm)
-
-          val f1  = 10000 // XXX TODO
-          val f2  = 12000 // XXX TODO
+          val thisFreq = machine.thisCommFreq.get
+          val f1  = thisFreq.f1a.toInt
+          val f2  = thisFreq.f2a.toInt
           val mId = MessageSpaceId(nodeId = config.nodeId, f1 = f1, f2 = f2)
           Biphase.send(mId.encode) { implicit tx =>
             release()
