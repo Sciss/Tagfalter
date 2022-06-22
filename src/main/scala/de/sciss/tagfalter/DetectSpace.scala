@@ -51,6 +51,7 @@ object DetectSpace {
                      spaceCorrection: Float   = -26f, // cm
                      minSpacePos    : Int     =  6,
                      maxSpacePos    : Int     = 24,
+                     dirAudio       : File    = new File("audio_work"),
                    ) extends Config
 
   trait Config {
@@ -60,6 +61,7 @@ object DetectSpace {
     def spaceCorrection: Float
     def minSpacePos     : Int
     def maxSpacePos     : Int
+    def dirAudio        : File
   }
 
   case class Result(posCm: Vec[Float])
@@ -94,6 +96,9 @@ object DetectSpace {
       val spaceCorrection: Opt[Float] = opt(default = Some(default.spaceCorrection),
         descr = s"Add correction in cm to space measurements (default: ${default.spaceCorrection}).",
       )
+      val dirAudio: Opt[File] = opt(default = Some(default.dirAudio),
+        descr = s"Audio file directory (default: ${default.dirAudio})"
+      )
 
       verify()
       implicit val config: Config = ConfigImpl(
@@ -103,6 +108,7 @@ object DetectSpace {
         spaceCorrection = spaceCorrection(),
         minSpacePos     = minSpacePos(),
         maxSpacePos     = maxSpacePos(),
+        dirAudio        = dirAudio().getAbsoluteFile,
       )
     }
     import p.config
@@ -315,7 +321,7 @@ object DetectSpace {
 
   def apply()(done: T => Result => Unit)(implicit tx: T, universe: Universe[T], config: Config): Unit = {
     val p = Proc[T]()
-    val dirAudio  = new File(userHome, "Documents/projects/Klangnetze/audio_work")
+    val dirAudio  = config.dirAudio // new File(userHome, "Documents/projects/Klangnetze/audio_work")
     val locAudio  = ArtifactLocation.newConst[T](dirAudio.toURI)
     val artFwd    = Artifact[T](locAudio, Artifact.Child("sweep2s_48kHz.aif"))
     val artBwd    = Artifact[T](locAudio, Artifact.Child("sweep2s_48kHzRvs.aif"))

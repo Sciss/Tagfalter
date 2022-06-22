@@ -14,11 +14,10 @@
 package de.sciss.tagfalter
 
 import de.sciss.audiofile.AudioFileSpec
-import de.sciss.file.userHome
 import de.sciss.lucre.{Artifact, ArtifactLocation, BooleanObj, DoubleObj}
 import de.sciss.numbers.Implicits.floatNumberWrapper
 import de.sciss.proc.{AudioCue, Proc, Runner, Universe}
-import de.sciss.synth.{GE, SynthGraph}
+import de.sciss.synth.SynthGraph
 import de.sciss.tagfalter.Main.{SR, T}
 import org.rogach.scallop.{ScallopConf, ScallopOption => Opt}
 
@@ -36,6 +35,7 @@ object Crypsis {
                          crypAchilles   : Float   =  0.98f,
                          crypModFreq    : Float   =  0.15f, // 0.5f, // 5.6f,
 //                         crypModDepth   : Float   = 0.7f,
+                         dirAudio       : File    = new File("audio_work"),
                        ) extends Config
 
   trait Config {
@@ -48,6 +48,7 @@ object Crypsis {
     def crypAchilles    : Float
     def crypModFreq     : Float
 //    def crypModDepth    : Float
+    def dirAudio        : File
   }
 
   def main(args: Array[String]): Unit = {
@@ -83,6 +84,9 @@ object Crypsis {
       val crypModFreq: Opt[Float] = opt(default = Some(default.crypModFreq),
         descr = s"Crypsis amplitude modulation frequency in Hz (default: ${default.crypModFreq}).",
       )
+      val dirAudio: Opt[File] = opt(default = Some(default.dirAudio),
+        descr = s"Audio file directory (default: ${default.dirAudio})"
+      )
 //      val crypModDepth: Opt[Float] = opt(default = Some(default.crypModDepth),
 //        descr = s"Crypsis amplitude modulation depth 0 to 1 (default: ${default.crypModDepth}).",
 //        validate = x => x >= 0.0 && x <= 1.0
@@ -99,6 +103,7 @@ object Crypsis {
         crypAchilles    = crypAchilles(),
         crypModFreq     = crypModFreq(),
 //        crypModDepth    = crypModDepth(),
+        dirAudio        = dirAudio().getAbsoluteFile,
       )
     }
     import p.config
@@ -130,7 +135,7 @@ object Crypsis {
 
   def applyWith(modFreq: Float)(implicit tx: T, config: Config, universe: Universe[T]): Result = {
     val p = Proc[T]()
-    val dirAudio  = new File(userHome, "Documents/projects/Klangnetze/audio_work")
+    val dirAudio  = config.dirAudio
     val locAudio  = ArtifactLocation.newConst[T](dirAudio.toURI)
     val artNoise  = Artifact[T](locAudio, Artifact.Child("whitenoise2s_48kHz.aif"))
     val specNoise = AudioFileSpec(numChannels = 1, sampleRate = SR, numFrames = 2 * SR)
@@ -150,6 +155,7 @@ object Crypsis {
       val modPeriod       = 0.5 / modFreq
       val pulseWidth0     = (0.5 * modPeriod - (LATENCY_ACOUSTIC_SEC /**2*/ + (LAG_TIME_UP_SEC + LAG_TIME_DN_SEC * 1.5) * 0.5)) / modPeriod // e.g.  0.44
       val pulseWidth      = pulseWidth0.max(0.05)
+
       /*
 
        iphase: initial phase offset in cycles ( 0..1 ). If you think of a buffer of one cycle of the waveform, this is
@@ -165,6 +171,7 @@ object Crypsis {
       val pulseInOutDly   = LATENCY_TOTAL / modPeriod // periods
       val pulseInPhase    = 0.0
       val pulseOutPhase   = (pulseInOutDly + 0.5).wrap(0.0, 1.0)
+
       val pulseIn         = LFPulse.ar(modFreq, iphase = pulseInPhase   , width = pulseWidth)
       val pulseOut        = LFPulse.ar(modFreq, iphase = pulseOutPhase  , width = pulseWidth)
       val pulseInL        = Lag2UD.ar(pulseIn , LAG_TIME_UP_SEC, LAG_TIME_DN_SEC)
@@ -196,31 +203,31 @@ object Crypsis {
       val dlyTime   = 7.5 // 10.0
       val dly       = DelayN.ar(cmpOut, dlyTime, dlyTime)
 
-      def mkAchil(in: GE): GE = {
-        val speed       = "achilles".kr(0.98) // 1.03 // 1.02
-//        if (config.debug) speed.poll(0, "achilles")
-        val numFrames   = 2 * SR // SR // SampleRate.ir // sampleRate.toInt
-        val bufAchil    = LocalBuf(numFrames = numFrames) // , numChannels = Pad(1, in))
-        ClearBuf(bufAchil)
-        val writeRate   = 1.0 // BufRateScale.kr(bufID)
-        val readRate    = writeRate * speed
-        val readPhasor  = Phasor.ar(0, readRate, 0, numFrames)
-        val read0       = BufRd.ar(1, bufAchil, readPhasor, 0, 4)
-        val read        = read0 // Gate.ar(read0, readBad sig_== 0)
-        val writePhasor = Phasor.ar(0, writeRate, 0, numFrames)
-        val old         = BufRd.ar(1, bufAchil, writePhasor, 0, 1)
-        val wet0        = SinOsc.ar(0, (readPhasor - writePhasor).abs / numFrames * math.Pi)
-        val dry         = 1 - wet0.squared
-        val wet         = 1 - (1 - wet0).squared
-        val write0      = (old * dry) + (in * wet)
-        // val writeBad    = CheckBadValues.ar(write0, id = 1001)
-        val writeSig    = write0 // Gate.ar(write0, writeBad sig_== 0)
-
-        // NOTE: `writeSig :: Nil: GE` does _not_ work because single
-        // element seqs are not created by that conversion.
-        BufWr.ar(/*Pad.Split(*/writeSig/*)*/, bufAchil, writePhasor)
-        read
-      }
+//      def mkAchil(in: GE): GE = {
+//        val speed       = "achilles".kr(0.98) // 1.03 // 1.02
+////        if (config.debug) speed.poll(0, "achilles")
+//        val numFrames   = 2 * SR // SR // SampleRate.ir // sampleRate.toInt
+//        val bufAchil    = LocalBuf(numFrames = numFrames) // , numChannels = Pad(1, in))
+//        ClearBuf(bufAchil)
+//        val writeRate   = 1.0 // BufRateScale.kr(bufID)
+//        val readRate    = writeRate * speed
+//        val readPhasor  = Phasor.ar(0, readRate, 0, numFrames)
+//        val read0       = BufRd.ar(1, bufAchil, readPhasor, 0, 4)
+//        val read        = read0 // Gate.ar(read0, readBad sig_== 0)
+//        val writePhasor = Phasor.ar(0, writeRate, 0, numFrames)
+//        val old         = BufRd.ar(1, bufAchil, writePhasor, 0, 1)
+//        val wet0        = SinOsc.ar(0, (readPhasor - writePhasor).abs / numFrames * math.Pi)
+//        val dry         = 1 - wet0.squared
+//        val wet         = 1 - (1 - wet0).squared
+//        val write0      = (old * dry) + (in * wet)
+//        // val writeBad    = CheckBadValues.ar(write0, id = 1001)
+//        val writeSig    = write0 // Gate.ar(write0, writeBad sig_== 0)
+//
+//        // NOTE: `writeSig :: Nil: GE` does _not_ work because single
+//        // element seqs are not created by that conversion.
+//        BufWr.ar(/*Pad.Split(*/writeSig/*)*/, bufAchil, writePhasor)
+//        read
+//      }
 
       val achil     = dly // mkAchil(dly)
 //      val modDepth  = "mod-freq".kr(0.8)
@@ -232,6 +239,13 @@ object Crypsis {
       val gate      = "gate".kr(1)
       val done      = !gate & A2K.kr(pulseOutL) < (-40).dbAmp
       DoneSelf(done)
+
+//      // some debugging:
+//      modFreq       .poll(0, "CR modFreq")
+//      pulseWidth    .poll(0, "CR pulseWidth")
+//      pulseOutPhase .poll(0, "CR pulseOutPhase")
+//      in            .poll(1, "CR in")
+//      sig           .poll(1, "CR sig")
 
       if (config.debugRec) {
         DiskOut.ar("rec", Seq(

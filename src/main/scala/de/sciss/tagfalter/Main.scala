@@ -22,6 +22,7 @@ import de.sciss.tagfalter.Biphase.{f1a, f1b, f2a, f2b}
 import de.sciss.tagfalter.OscNode.DEFAULT_PORT
 import org.rogach.scallop.{ScallopConf, ScallopOption => Opt}
 
+import java.io.File
 import scala.collection.Seq
 
 object Main {
@@ -53,6 +54,7 @@ object Main {
                          commMinFreq    : Float   =   700f,
                          commMaxFreq    : Float   = 18000f,
                          joyProb        : Float   = 0.1f,
+                         dirAudio       : File    = new File("audio_work"),
                          // --- Silence ---
                          silenceAmp     : Float   = -30f,
                          silenceFreq    : Float   = 34f,
@@ -127,6 +129,7 @@ object Main {
     def commMinFreq       : Float
     def commMaxFreq       : Float
     def joyProb           : Float
+    def dirAudio          : File
   }
 
   type ConfigAll = Config
@@ -218,6 +221,9 @@ object Main {
       val joyProb: Opt[Float] = opt(default = Some(default.joyProb),
         descr = s"Joy stage probability 0 to 1 (default: ${default.joyProb}).",
         validate = x => x >= 0f && x <= 1f
+      )
+      val dirAudio: Opt[File] = opt(default = Some(default.dirAudio),
+        descr = s"Audio file directory (default: ${default.dirAudio})"
       )
 
       // --- Silence ---
@@ -342,6 +348,7 @@ object Main {
         commMinFreq       = commMinFreq(),
         commMaxFreq       = commMaxFreq(),
         joyProb           = joyProb(),
+        dirAudio          = dirAudio().getAbsoluteFile,
         // --- Silence ---
         silenceAmp        = silenceAmp(),
         silenceFreq       = silenceFreq(),

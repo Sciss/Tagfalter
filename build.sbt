@@ -1,6 +1,6 @@
 lazy val baseName       = "Tagfalter"
 lazy val baseNameL      = baseName.toLowerCase
-lazy val projectVersion = "0.6.0-SNAPSHOT"
+lazy val projectVersion = "0.6.0"
 
 lazy val gitHost        = "codeberg.org"
 lazy val gitUser        = "sciss"
@@ -14,6 +14,8 @@ lazy val buildInfoSettings = Seq(
   ),
   buildInfoOptions += BuildInfoOption.BuildTime
 )
+
+def appMainClass = Some("de.sciss.tagfalter.Main")
 
 lazy val commonSettings = Seq(
   version      := projectVersion,
@@ -44,6 +46,7 @@ lazy val root = project.in(file("."))
     ),
     scalacOptions += "-deprecation",
     assembly / assemblyJarName := s"$baseName.jar",
+    assembly / mainClass       := appMainClass,
     resolvers += Resolver.sonatypeRepo("snapshots"),  // needed for hid4java
     buildInfoPackage := "de.sciss.tagfalter",
   )

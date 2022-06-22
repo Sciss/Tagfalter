@@ -14,6 +14,8 @@
 package de.sciss.tagfalter
 
 import de.sciss.osc
+import de.sciss.synth.Ops.ServerOps
+import de.sciss.synth.Server
 import org.rogach.scallop.{ScallopConf, ScallopOption => Opt}
 
 object OscNode {
@@ -66,8 +68,18 @@ object OscNode {
       p match {
         case osc.Message("/state", code) =>
           println(s"OSC: state is $code")
-          // XXX TODO: state 0 is the one we need to react to
-          ()
+          // state 0 is the one we need to react to
+          if (code == 0) sys.exit()
+
+        case osc.Message("/tree") =>
+          try {
+            val s = Server.default
+            println(s.counts)
+            s.dumpTree(controls = true)
+
+          } catch {
+            case _: Exception =>
+          }
 
         case osc.Message("/quit") =>
           sys.exit()

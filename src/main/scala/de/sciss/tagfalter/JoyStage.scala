@@ -13,6 +13,8 @@
 
 package de.sciss.tagfalter
 
+import de.sciss.numbers.Implicits._
+import de.sciss.proc.TimeRef
 import de.sciss.tagfalter.Main.T
 
 class JoyStage extends Stage.Running {
@@ -24,7 +26,13 @@ class JoyStage extends Stage.Running {
     machine.thisCommFreq match {
       case Some(freq) =>
         Biphase.send(m.encode, freq) { implicit tx =>
-          machine.released(stage)
+          import machine.random
+          val sch     = machine.universe.scheduler
+          val dlySec  = random.nextFloat().linLin(0f, 1f, 7f, 15f)
+          val dlyFr   = (dlySec * TimeRef.SampleRate).toLong
+          sch.schedule(sch.time + dlyFr) { implicit tx =>
+            machine.released(stage)
+          }
         }
 
       case None =>

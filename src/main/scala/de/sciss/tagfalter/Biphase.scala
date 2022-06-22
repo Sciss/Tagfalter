@@ -241,10 +241,13 @@ object Biphase {
       val phasePeriodS = bitPeriod / 500
       val osc = oscA + DelayN.ar(oscB, phasePeriodS, phasePeriodS)
 
-      val amp = "amp".kr(0.1f)
-      PhysicalOut.ar(0, osc * amp)
-
-      val done = bitCount sig_== (numBits + NumIdle)
+//      val done0 = bitCount >= (numBits + NumIdle)
+      val amp   = "amp".kr(0.1f)
+      val env   = Env.asr(attack = 0.0, level = amp, release = LAG_TIME * 2)
+      val gate  = bitCount < (numBits + NumIdle) // 1.0 - done0
+      val eg    = EnvGen.kr(env, gate = gate)
+      val done  = Done.kr(eg) // TDelay.kr(done0, LAG_TIME)
+      PhysicalOut.ar(0, osc * eg)
       FreeSelf.kr(done)
     }
 

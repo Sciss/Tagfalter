@@ -44,22 +44,27 @@ class DetectSpaceStage extends Stage.Running {
           val f2  = thisFreq.f2a.toInt
           val mId = MessageSpaceId(nodeId = config.nodeId, f1 = f1, f2 = f2)
           Biphase.send(mId.encode) { implicit tx =>
-            release()
+            val INTER_DELAY = random.nextFloat().linLin(0f, 1f, INTER_DELAY_MIN, INTER_DELAY_MAX)
+            sch.schedule(sch.time + (TimeRef.SampleRate * INTER_DELAY).toLong) { implicit tx =>
+              machine.released(stage)
+            }
           }
         }
       }
     }
   }
 
-  override def release()(implicit tx: T, machine: Machine): Unit = {
-    import machine.universe.scheduler
-    import machine.random
+  override def release()(implicit tx: T, machine: Machine): Unit = ()
 
-    val INTER_DELAY = random.nextFloat().linLin(0f, 1f, INTER_DELAY_MIN, INTER_DELAY_MAX)
-    scheduler.schedule(scheduler.time + (TimeRef.SampleRate * INTER_DELAY).toLong) { implicit tx =>
-      machine.released(stage)
-    }
-  }
+//  override def release()(implicit tx: T, machine: Machine): Unit = {
+//    import machine.universe.scheduler
+//    import machine.random
+//
+//    val INTER_DELAY = random.nextFloat().linLin(0f, 1f, INTER_DELAY_MIN, INTER_DELAY_MAX)
+//    scheduler.schedule(scheduler.time + (TimeRef.SampleRate * INTER_DELAY).toLong) { implicit tx =>
+//      machine.released(stage)
+//    }
+//  }
 
   override def pause  ()(implicit tx: T, machine: Machine): Unit = () // XXX TODO
   override def resume ()(implicit tx: T, machine: Machine): Unit = () // XXX TODO

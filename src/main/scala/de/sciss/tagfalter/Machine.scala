@@ -45,6 +45,8 @@ object Machine {
 
   private val HEX = "0123456789ABCDEF"
 
+  private case class JoyReceive(nodeId: Int, rcv: Biphase.Receive)
+
   private final class Impl(val random: Random[T])(implicit val universe: Universe[T], val config: ConfigAll)
     extends Machine {
 
@@ -53,17 +55,23 @@ object Machine {
     private val stageRef        = Ref[Stage](Stage.Empty)
     private val targetStageRef  = Ref[Stage](Stage.Empty)
     private val stagePosRef     = Ref[Vec[Float]](Vec.empty)
-    private val runningRef      = Ref(Option.empty[Stage.Running])
-    private val accelRecRef     = Ref(Option.empty[Accelerate.RecResult])
+    private val runningRef      = Ref[Option[Stage.Running]](None)
+    private val accelRecRef     = Ref[Option[Accelerate.RecResult]](None)
     private val accelRecTime    = Ref(0L)
     private val detectSpaceTime = Ref(0L)
     private val stageSaveNext   = Ref[Stage](Stage.Empty)
     private val rcvSpaceId      = Ref(0L)
     private val timeSpaceId     = Ref(0L)
     private val commFreqSeqRef  = Ref[Vec[Float]](Vec.empty)
+    private val joyBlockTime    = Ref(0L)   // no joy response until this point in time has been reached
+    private val joyRcvRef       = Ref[Vec[JoyReceive]](Vec.empty)
+    private val joyResponse     = Ref(false)
+    private val holdOn          = Ref(false)
+    private val holdBlockTime   = Ref(0L)   // no hold response until this point in time has been reached
 
     // 6 bytes in `MessageSpaceId` times 10 bits per byte, one second extra time out
-    private val TimeOutSpaceId  = ((config.bitPeriod/1000 * (10 * MessageSpaceId.NumBytes) + 1f) * TimeRef.SampleRate).toLong
+    private val TimeOutSpaceId    = ((config.bitPeriod/1000 * (10 * MessageSpaceId.NumBytes) + 1f) * TimeRef.SampleRate).toLong
+    private val DetectSpacePeriod = config.detectSpacePeriod * 1.5.pow((config.nodeId % 32)/32.0)
 
     def start()(implicit tx: T): Unit = {
       startBiphaseRcv()
@@ -72,6 +80,76 @@ object Machine {
 
     private def received(m: Biphase.Message)(implicit tx: T): Unit = {
       log.info(s"Received $m")
+
+      val sch = universe.scheduler
+      val now = sch.time
+      m match {
+        case Biphase.MessageHoldOn =>
+          if (now > holdBlockTime() && !holdOn()) {
+            holdOn() = true
+            runningRef().foreach(_.release())
+            val dlySec    = random.nextFloat().linLin(0f, 1f, 10f, 20f)
+            log.info(f"Hold on for $dlySec%1.1fs")
+            val dlyFr     = (dlySec * TimeRef.SampleRate).toLong
+            sch.schedule(now + dlyFr) { implicit tx =>
+              holdOn() = false
+              tryLaunchTarget()
+            }
+          }
+
+        case m @ Biphase.MessageSpaceId(nodeId, _ /*f1*/, _ /*f2*/) =>
+          val joyRcvOld = joyRcvRef()
+          val rlsIdx0   = joyRcvOld.indexWhere(_.nodeId == nodeId)
+          // release the receiver for the existing node, or otherwise release the oldest
+          // so we never have more than two receivers
+          val rlsIdx    = if (rlsIdx0 >= 0) rlsIdx0 else if (joyRcvOld.size > 1) 1 else -1
+          val joyRcvMed = if (rlsIdx < 0) joyRcvOld else {
+            val joyRls = joyRcvOld(rlsIdx)
+            joyRls.rcv.dispose()
+            joyRcvOld.patch(rlsIdx, Nil, 1)
+          }
+          val joyAtk    = mkJoyReceiver(m)
+          val joyRcvNew = joyAtk +: joyRcvMed
+          joyRcvRef()   = joyRcvNew
+
+        case Biphase.MessageJoy(_ /*nodeId*/) =>
+          val commFreqOpt = thisCommFreq
+          if (now > joyBlockTime() && !joyResponse() && commFreqOpt.isDefined) {
+            val dlySec    = random.nextFloat().linLin(0f, 1f, 1f, 4f)
+            val dlyFr     = (dlySec * TimeRef.SampleRate).toLong
+            val timeResp  = now + dlyFr
+            joyBlockTime() = timeResp + (TimeRef.SampleRate * 10).toLong
+            joyResponse() = true
+            runningRef().foreach(_.release())
+            sch.schedule(timeResp) { implicit tx =>
+              log.info("Sending joy response")
+              Biphase.send(m.encode, commFreqOpt.get) { implicit tx =>
+                joyResponse() = false
+                val dlySec    = random.nextFloat().linLin(0f, 1f, 2f, 4f)
+                log.info(f"Hold on for $dlySec%1.1fs")
+                val dlyFr     = (dlySec * TimeRef.SampleRate).toLong
+                sch.schedule(sch.time + dlyFr) { implicit tx =>
+                  tryLaunchTarget()
+                }
+              }
+            }
+          }
+
+        case _ => ()  // `Message` is sealed, does not occur
+      }
+    }
+
+    private def mkJoyReceiver(m: Biphase.MessageSpaceId)(implicit tx: T): JoyReceive = {
+      val rcvAtk = Biphase.receive(f1 = m.f1.toFloat, f2 = m.f2.toFloat) { implicit tx => byte =>
+        val hexHi = (byte >> 4) & 0x0F
+        val hexLo =  byte       & 0x0F
+        log.debug(s"Received node comm 0x${HEX(hexHi)}${HEX(hexLo)}")
+        if (byte == Biphase.CMD_JOY) {
+          // Note: we don't actually wait for the nodeId byte
+          received(Biphase.MessageJoy(0))
+        }
+      }
+      JoyReceive(m.nodeId, rcvAtk)
     }
 
     private def startBiphaseRcv()(implicit tx: T): Unit = {
@@ -156,7 +234,10 @@ object Machine {
     }
 
     private def tryLaunchTarget()(implicit tx: T): Unit = {
-      if (runningRef().isDefined) return
+      if (runningRef().isDefined || joyResponse() || holdOn()) {
+        log.info(s"launch skipped. running? ${runningRef().isDefined}; joy? ${joyResponse()}; hold? ${holdOn()}")
+        return
+      }
 
       val st        = targetStageRef()
       stageRef()    = st
@@ -166,7 +247,7 @@ object Machine {
       val nextSt0: Stage = st match {
         case Stage.Crypsis =>
           val timeDetectOld = detectSpaceTime()
-          if (timeDetectOld == 0L || (timeNow - timeDetectOld) / TimeRef.SampleRate >= config.detectSpacePeriod) {
+          if (timeDetectOld == 0L || (timeNow - timeDetectOld) / TimeRef.SampleRate >= DetectSpacePeriod) {
             detectSpaceTime() = timeNow
             Stage.DetectSpace
           } else {
@@ -174,7 +255,9 @@ object Machine {
             Stage.SpaceTimbre
           }
 
-        case Stage.DetectSpace => Stage.SpaceTimbre
+        case Stage.DetectSpace =>
+          holdBlockTime() = timeNow + (TimeRef.SampleRate * 10).toLong
+          Stage.SpaceTimbre
 
         case Stage.SpaceTimbre =>
           val timeRec = accelRecTime()
@@ -186,9 +269,14 @@ object Machine {
             Stage.Crypsis
           }
 
-        case Stage.Accelerate           => Stage.Crypsis
-        case Stage.Silence | Stage.Joy  => stageSaveNext()
-        case _                          => Stage.Crypsis // Stage.Empty
+        case Stage.Accelerate => Stage.Crypsis
+        case Stage.Silence    => stageSaveNext()
+
+        case Stage.Joy  =>
+          joyBlockTime() = timeNow + (TimeRef.SampleRate * 10).toLong
+          stageSaveNext()
+
+        case _ => Stage.Crypsis // Stage.Empty
       }
 
       val nextSil = st != Stage.Silence && random.nextFloat() < config.silenceProb
@@ -211,7 +299,16 @@ object Machine {
     override def spacePos(implicit tx: T): Vec[Float] = stagePosRef()
 
     private def shuffleN(xs: Vec[Float], n: Int)(implicit tx: T): Vec[Float] = {
-      val buf = xs.toArray
+      val xsSize = xs.size
+      val buf = if (n >= xsSize) {
+        xs.toArray
+      } else if (xsSize == 0) {
+        Array.fill(n)(1f)
+      } else {
+        Array.tabulate(n) { i =>
+          if (i < xsSize) xs(i) else xs.last
+        }
+      }
 
       def swap(i1: Int, i2: Int): Unit = {
         val tmp = buf(i1)

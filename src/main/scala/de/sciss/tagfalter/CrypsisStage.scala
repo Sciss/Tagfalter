@@ -34,6 +34,7 @@ class CrypsisStage extends Stage.Running {
       val sz: Int = spacePos.size.clip(config.minSpacePos, config.maxSpacePos)
       sz.linLin(config.minSpacePos.toFloat, config.maxSpacePos.toFloat, config.crypModMinFreq, config.crypModMaxFreq)
     }
+    log.info(f"Crypsis mod-freq is $modFreq%1.2f Hz")
     val cryp      = Crypsis.applyWith(modFreq = modFreq)
     crypRef()     = Some(cryp)
     /*val lCryp: Disposable[T] =*/ cryp.runner.reactNow { implicit tx => state =>
@@ -62,23 +63,6 @@ class CrypsisStage extends Stage.Running {
     }
 
     schedule(minDur = config.initCrypMinDur, maxDur = config.initCrypMaxDur)
-
-//    val rcv = Biphase.receive(f1 = config.biphaseF1a, f2 = config.biphaseF2a) { implicit tx => _ /*byte*/ =>
-//      // if (byte == Biphase.CMD_HOLD_ON)
-//      log.info("Received global communication")
-//      val dlyGlobSec  = 10.0
-//      val dlyGlobFr   = (dlyGlobSec * TimeRef.SampleRate).toLong
-//      val timeMin     = sch.time + dlyGlobFr
-//      val schTime     = schTimeRef()
-//      if (schTime < timeMin) {
-//        log.info("Have to reschedule crypsis")
-//        // important to schedule further than `dlyGlobSec` because transmission could call
-//        // `consume` again now.
-//        val durGlobSec = 5.0
-//        schedule(minDur = dlyGlobSec + durGlobSec, maxDur = dlyGlobSec * 2 + durGlobSec)
-//      }
-//    }
-//    rcvRef() = rcv
   }
 
   override def pause ()(implicit tx: T, machine: Machine): Unit = () // XXX TODO

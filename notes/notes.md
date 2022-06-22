@@ -12,10 +12,15 @@
 
 - [X] after space-pos update: send individual frequencies (1 byte id, 2x2 bytes frequencies)
 - [X] at random intervals: communicate on individual frequencies *joyous* (others respond max. once)
-- [ ] continuously run biphase-rcv ? then release any process when detecting global comm
+
+# Notes 22-Jun-2022
+
+- [X] might be good to randomise the inter-space waiting duration, so chances are low that multiple nodes re-run
+  space-detect at the same time
+- [X] continuously run biphase-rcv
+- [X] then release any process when detecting global comm
+- [X] joy response
+- [X] joy: add pause to "wait for responses"
+- [X] biphase-send clicks at end (need to wait for fade-out of lag)
 - [ ] after a period (e.g. hour), re-start accel-rec based on current spatial positions
 - [ ] accel: filter communication frequencies?
-- [ ] biphase-send clicks at end (need to wait for fade-out of lag)
-- [ ] joy: add pause to "wait for responses"
-- [ ] might be good to randomise the inter-space waiting duration, so chances are low that multiple nodes re-run
-      space-detect at the same time
