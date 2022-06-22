@@ -36,7 +36,7 @@ object Main {
                          initCrypMaxDur : Float   = 180.0f,
                          initAccMinDur  : Float   =  60.0f,
                          initAccMaxDur  : Float   = 180.0f,
-                         verbose        : Boolean = false,
+                         verbose        : Boolean = true,
                          debug          : Boolean = false,
                          accelMinFactor : Float   = 16f,
                          accelMaxFactor : Float   = 64f,
@@ -70,14 +70,14 @@ object Main {
                          // --- Crypsis ---
                          debugRec       : Boolean =  false,
                          crypMicAmp     : Float   = 40.0f, // 4.0f,
-                         crypSpeakerAmp : Float   = 12.0f,
+                         crypSpeakerAmp : Float   = 15.0f, // 12.0f,
                          cmpThreshIn    : Float   =  10f,
                          cmpThreshOut   : Float   =  15f,
                          crypAchilles   : Float   =  0.98f,
                          crypModFreq    : Float   =  0.15f, // 0.25f, // 0.5f, // 5.6f,
                          // --- Biphase ---
                          bitPeriod      : Float   = 120.0f,
-                         encAmp         : Float   = -20f,
+                         encAmp         : Float   = -23f, // -20f,
                          decAmp2        : Float   = -10f, // 0.5f,
                          decMicAmp      : Float   = 30f, // 4.0f,
                          wlanIf         : String  = "wlan0",
@@ -88,12 +88,12 @@ object Main {
                          // --- SpaceTimbre ---
                          spaceMinCm     : Float   =    60.0f, // 10.0
                          spaceMaxCm     : Float   = 12000.0f, // 2000.0
-                         spaceMinFreq   : Float   =   150.0f,
-                         spaceMaxFreq   : Float   = 18000.0f,
+                         spaceMinFreq   : Float   =   200.0f, // 150.0f,
+                         spaceMaxFreq   : Float   = 24000f, // 18000.0f,
                          spaceAmp       : Float   = -10.0f, // decibels
                          // --- Accelerate ---
                          accelMicAmp    : Float   = 10.0f,
-                         accelSigAmp    : Float   =  1.0f,
+                         accelSigAmp    : Float   =  2.0f, // 1.0f,
                          accelCmpThresh : Float   =  15f,
                        ) extends Config
     with OscNode      .Config
@@ -152,7 +152,8 @@ object Main {
 
       // --- Main ---
       val verbose: Opt[Boolean] = toggle(default = Some(default.verbose),
-        descrYes = "Verbosity printing",
+        descrYes = "Verbosity printing (default)",
+        descrNo  = "Disable verbosity printing",
       )
       val debug: Opt[Boolean] = toggle(default = Some(default.debug),
         descrYes = "Debug printing",
