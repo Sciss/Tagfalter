@@ -300,7 +300,7 @@ object Machine {
 
     private def shuffleN(xs: Vec[Float], n: Int)(implicit tx: T): Vec[Float] = {
       val xsSize = xs.size
-      val buf = if (n >= xsSize) {
+      val buf = if (xsSize >= n) {
         xs.toArray
       } else if (xsSize == 0) {
         Array.fill(n)(1f)
