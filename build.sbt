@@ -1,6 +1,6 @@
 lazy val baseName       = "Tagfalter"
 lazy val baseNameL      = baseName.toLowerCase
-lazy val projectVersion = "0.7.0-SNAPSHOT"
+lazy val projectVersion = "0.9.0"
 
 lazy val gitHost        = "codeberg.org"
 lazy val gitUser        = "sciss"

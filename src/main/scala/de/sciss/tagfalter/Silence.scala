@@ -29,6 +29,7 @@ object Silence {
                        ) extends Config
 
   trait Config {
+    /** Decibels */
     def silenceAmp        : Float
     def silenceFreq       : Float
   }

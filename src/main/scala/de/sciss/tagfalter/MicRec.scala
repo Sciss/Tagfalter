@@ -13,7 +13,8 @@
 
 package de.sciss.tagfalter
 
-import de.sciss.lucre.synth.{Buffer, Server, Synth}
+import de.sciss.lucre.Disposable
+import de.sciss.lucre.synth.{Buffer, RT, Server, Synth}
 import de.sciss.proc.Universe
 import de.sciss.synth.{SynthGraph, freeSelf}
 import de.sciss.tagfalter.Main.T
@@ -38,7 +39,6 @@ object MicRec {
     def file    : File
     def click   : Boolean
   }
-
 
   def main(args: Array[String]): Unit = {
     Main.printInfo()
@@ -79,11 +79,18 @@ object MicRec {
 
   def run()(implicit config: Config): Unit = {
     Main.boot { implicit tx => implicit universe => s =>
-      apply(s)
+      apply(s) { implicit tx =>
+        tx.afterCommit {
+          println("Done.")
+          sys.exit()
+        }
+      }
     }
   }
 
-  def apply(s: Server)(implicit tx: T, config: Config, universe: Universe[T]): Unit = {
+  type Result = Disposable[T]
+
+  def apply(s: Server)(done: RT => Unit)(implicit tx: T, config: Config, universe: Universe[T]): Result = {
     val g = SynthGraph {
       import de.sciss.synth.Import._
       import de.sciss.synth.Ops.stringToControl
@@ -111,10 +118,13 @@ object MicRec {
 
     syn.onEndTxn { implicit tx =>
       buf.dispose()
-      tx.afterCommit {
-        println("Done.")
-        sys.exit()
-      }
+      done(tx)
+//      tx.afterCommit {
+//        println("Done.")
+//        sys.exit()
+//      }
     }
+
+    syn
   }
 }

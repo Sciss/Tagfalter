@@ -46,6 +46,7 @@ object Biphase {
     /** Bit encoding period in milliseconds */
     def bitPeriod : Float
     def debug     : Boolean
+    /** Decibels */
     def encAmp    : Float
     def decAmp2   : Float // why oh why?
     def decMicAmp : Float
@@ -146,7 +147,7 @@ object Biphase {
           }
         }
         if (config.program == "enc" || config.program == "both") {
-          send(bytes, freq = freq)(_ => ())
+          send(bytes, freq = freq, ampDb = config.encAmp)(_ => ())
         }
       }
     }
@@ -168,7 +169,7 @@ object Biphase {
 
   final val globalFreq = Freq(f1a = f1a, f1b = f1b, f2a = f2a, f2b = f2b)
 
-  def send(/*s: Server,*/ bytes: Array[Byte], freq: Freq = globalFreq)(done: T => Unit)
+  def send(/*s: Server,*/ bytes: Array[Byte], freq: Freq = globalFreq, ampDb: Float)(done: T => Unit)
           (implicit tx: T, config: Config, universe: Universe[T]): Unit = {
     // val p = Proc[T]()
     val s = universe.auralContext.get.server
@@ -256,7 +257,7 @@ object Biphase {
     val syn = Synth.play(g, nameHint = Some("bi-enc"))(s,
       args = Seq(
         "bit-buf" -> bitBuf.id,
-        "amp"     -> config.encAmp  .dbAmp,
+        "amp"     -> ampDb /*config.encAmp*/  .dbAmp,
         "f1a"     -> freq.f1a,
         "f1b"     -> freq.f1b,
         "f2a"     -> freq.f2a,

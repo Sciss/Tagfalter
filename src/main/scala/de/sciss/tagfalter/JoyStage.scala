@@ -25,7 +25,7 @@ class JoyStage extends Stage.Running {
     val m = Biphase.MessageJoy(config.nodeId)
     machine.thisCommFreq match {
       case Some(freq) =>
-        Biphase.send(m.encode, freq) { implicit tx =>
+        Biphase.send(m.encode, freq = freq, ampDb = config.encAmpComm) { implicit tx =>
           import machine.random
           val sch     = machine.universe.scheduler
           val dlySec  = random.nextFloat().linLin(0f, 1f, 7f, 15f)

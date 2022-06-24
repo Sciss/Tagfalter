@@ -15,24 +15,26 @@ package de.sciss.tagfalter
 
 import de.sciss.log.Level
 import de.sciss.lucre.{BooleanObj, DoubleObj, DoubleVector}
-import de.sciss.numbers.Implicits.{doubleNumberWrapper, floatNumberWrapper}
+import de.sciss.numbers.Implicits._
 import de.sciss.proc.{Proc, Runner, TimeRef, Universe}
-import de.sciss.synth.SynthGraph
+import de.sciss.synth.{Curve, SynthGraph}
 import de.sciss.synth.UGenSource.Vec
 import de.sciss.tagfalter.Main.{T, log}
+import org.rogach.scallop
 import org.rogach.scallop.{ScallopConf, ScallopOption => Opt}
 
 object SpaceTimbre {
 
   case class ConfigImpl(
                          dur : Float = 30f,
-                         numPos        : Int     = 5,
-                         debug         : Boolean = false,
-                         spaceMinCm    : Float   =    60.0f, // 10.0
-                         spaceMaxCm    : Float   = 12000.0f, // 2000.0
-                         spaceMinFreq  : Float   =   150.0f,
-                         spaceMaxFreq  : Float   = 18000.0f,
-                         spaceAmp      : Float   = -10.0f, // decibels
+                         numPos       : Int     = 5,
+                         debug        : Boolean = false,
+                         spaceMinCm   : Float   =    60.0f, // 10.0
+                         spaceMaxCm   : Float   = 12000.0f, // 2000.0
+                         spaceMinFreq : Float   =   150.0f,
+                         spaceMaxFreq : Float   = 18000.0f,
+                         spaceAmp     : Float   = -10.0f, // decibels
+                         spaceCurve   : Curve   = Curve.exp,
 
                        ) extends Config
 
@@ -43,6 +45,29 @@ object SpaceTimbre {
     def spaceMinFreq: Float
     def spaceMaxFreq: Float
     def spaceAmp    : Float
+    def spaceCurve  : Curve
+  }
+
+  private val curveNameMap: Map[String, Curve] = Map(
+    "step"        -> Curve.step,
+    "lin"         -> Curve.linear,
+    "linear"      -> Curve.linear,
+    "exp"         -> Curve.exponential,
+    "exponential" -> Curve.exponential,
+    "sin"         -> Curve.sine,
+    "sine"        -> Curve.sine,
+    "welch"       -> Curve.welch,
+    "sqr"         -> Curve.squared,
+    "squared"     -> Curve.squared,
+    "cub"         -> Curve.cubed,
+    "cubed"       -> Curve.cubed
+  )
+
+  implicit val ReadCurve: scallop.ValueConverter[Curve] = scallop.singleArgConverter { s =>
+    curveNameMap.getOrElse(s.toLowerCase, {
+      val p = s.toFloat
+      Curve.parametric(p)
+    })
   }
 
   def main(args: Array[String]): Unit = {
@@ -77,6 +102,9 @@ object SpaceTimbre {
       val spaceAmp: Opt[Float] = opt(default = Some(default.spaceAmp),
         descr = s"Space-timbre amplitude, in decibels (default: ${default.spaceAmp}).",
       )
+      val spaceCurve: Opt[Curve] = opt(default = Some(default.spaceCurve),
+        descr = s"Space-timbre frequency distribution curve; lin, exp, sine, welch, 2.0 etc. (default: ${default.spaceCurve}).",
+      )
 
       verify()
       implicit val config: ConfigImpl = ConfigImpl(
@@ -88,6 +116,7 @@ object SpaceTimbre {
         spaceMinFreq  = spaceMinFreq(),
         spaceMaxFreq  = spaceMaxFreq(),
         spaceAmp      = spaceAmp(),
+        spaceCurve    = spaceCurve(),
       )
     }
     import p.config
@@ -169,11 +198,14 @@ object SpaceTimbre {
     log.debug(f"space-lo = $spaceLo%1.1f")
     log.debug(f"space-hi = $spaceHi%1.1f")
 
-    import config.{spaceMaxCm, spaceMaxFreq, spaceMinCm, spaceMinFreq}
+    import config.{spaceMaxCm, spaceMaxFreq, spaceMinCm, spaceMinFreq, spaceCurve}
     val freqSeq = spaceSeq.map { cm =>
-      val cmClip  = cm.toDouble.clip(spaceMinCm, spaceMaxCm)
-      val f0      = cmClip.linExp(spaceMinCm, spaceMaxCm, spaceMinFreq, spaceMaxFreq)
-      skipFreq.foldLeft(f0) { (f1, fBlock) =>
+      val cmClip  = cm/*.toDouble*/.clip(spaceMinCm, spaceMaxCm)
+      // val f0      = cmClip.linExp(spaceMinCm, spaceMaxCm, spaceMinFreq, spaceMaxFreq)
+      val pos     = cmClip.linLin(spaceMinCm, spaceMaxCm, 0.0f, 1.0f)
+      val f0      = spaceCurve.levelAt(pos, y1 = spaceMinFreq, y2 = spaceMaxFreq)
+
+      skipFreq.foldLeft(f0.toDouble) { (f1, fBlock) =>
         // XXX TODO: should we use relative frequencies, such as `fBlock * 0.99` ?
         //  I think Goertzel is on a linear spectrum, so probably fine like this
         val fBlockLo = fBlock - 100f

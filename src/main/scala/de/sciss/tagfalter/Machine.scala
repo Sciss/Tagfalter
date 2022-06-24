@@ -69,11 +69,28 @@ object Machine {
     private val holdOn          = Ref(false)
     private val holdBlockTime   = Ref(0L)   // no hold response until this point in time has been reached
 
+    private val tokenTimeOutRef  = Ref(0)
+
     // 6 bytes in `MessageSpaceId` times 10 bits per byte, one second extra time out
     private val TimeOutSpaceId    = ((config.bitPeriod/1000 * (10 * MessageSpaceId.NumBytes) + 1f) * TimeRef.SampleRate).toLong
     private val DetectSpacePeriod = config.detectSpacePeriod * 1.5.pow((config.nodeId % 32)/32.0)
+    private val TimeOutReboot     = (TimeRef.SampleRate * config.rebootTimeOut).toLong
+
+    private def renewTimeOut()(implicit tx: T): Unit = {
+      val sch = universe.scheduler
+      val tokenTimeOut = sch.schedule(sch.time + TimeOutReboot) { implicit tx =>
+        log.warn("Machine time-out. Going to reboot")
+        tx.afterCommit {
+          import sys.process._
+          Seq("sudo", "reboot", "now").!
+        }
+      }
+      val tokenOld = tokenTimeOutRef.swap(tokenTimeOut)
+      sch.cancel(tokenOld)
+    }
 
     def start()(implicit tx: T): Unit = {
+      renewTimeOut()
       startBiphaseRcv()
       targetStage_=(Stage.Crypsis)
     }
@@ -123,7 +140,8 @@ object Machine {
             runningRef().foreach(_.release())
             sch.schedule(timeResp) { implicit tx =>
               log.info("Sending joy response")
-              Biphase.send(m.encode, commFreqOpt.get) { implicit tx =>
+              val mResp = Biphase.MessageJoy(config.nodeId)
+              Biphase.send(mResp.encode, freq = commFreqOpt.get, ampDb = config.encAmpComm) { implicit tx =>
                 joyResponse() = false
                 val dlySec    = random.nextFloat().linLin(0f, 1f, 2f, 4f)
                 log.info(f"Hold on for $dlySec%1.1fs")
@@ -294,6 +312,8 @@ object Machine {
 
       log.info(s"Starting $st")
       running.start()
+
+      renewTimeOut()
     }
 
     override def spacePos(implicit tx: T): Vec[Float] = stagePosRef()

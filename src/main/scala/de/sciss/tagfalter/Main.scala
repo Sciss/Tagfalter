@@ -17,7 +17,7 @@ import de.sciss.log.{Level, Logger}
 import de.sciss.lucre.Workspace
 import de.sciss.lucre.synth.{InMemory, Server}
 import de.sciss.proc.{AuralSystem, SoundProcesses, Universe}
-import de.sciss.synth.Client
+import de.sciss.synth.{Client, Curve}
 import de.sciss.tagfalter.Biphase.{f1a, f1b, f2a, f2b}
 import de.sciss.tagfalter.OscNode.DEFAULT_PORT
 import org.rogach.scallop.{ScallopConf, ScallopOption => Opt}
@@ -55,8 +55,10 @@ object Main {
                          commMaxFreq    : Float   = 18000f,
                          joyProb        : Float   = 0.1f,
                          dirAudio       : File    = new File("audio_work"),
+                         encAmpComm     : Float   = -23f, // -20f,
+                         rebootTimeOut  : Int     = 600,  // 10 minutes
                          // --- Silence ---
-                         silenceAmp     : Float   = -30f,
+                         silenceAmp     : Float   = -24f, // -30f,
                          silenceFreq    : Float   = 34f,
                          // --- OscNode ---
                          dumpOsc        : Boolean = false,
@@ -77,7 +79,7 @@ object Main {
                          crypModFreq    : Float   =  0.15f, // 0.25f, // 0.5f, // 5.6f,
                          // --- Biphase ---
                          bitPeriod      : Float   = 120.0f,
-                         encAmp         : Float   = -23f, // -20f,
+                         encAmp         : Float   = -24f, // -20f,
                          decAmp2        : Float   = -10f, // 0.5f,
                          decMicAmp      : Float   = 30f, // 4.0f,
                          wlanIf         : String  = "wlan0",
@@ -91,6 +93,7 @@ object Main {
                          spaceMinFreq   : Float   =   200.0f, // 150.0f,
                          spaceMaxFreq   : Float   = 24000f, // 18000.0f,
                          spaceAmp       : Float   = -10.0f, // decibels
+                         spaceCurve: Curve = Curve.squared,
                          // --- Accelerate ---
                          accelMicAmp    : Float   = 10.0f,
                          accelSigAmp    : Float   =  2.0f, // 1.0f,
@@ -130,6 +133,9 @@ object Main {
     def commMaxFreq       : Float
     def joyProb           : Float
     def dirAudio          : File
+    /** Decibels */
+    def encAmpComm        : Float
+    def rebootTimeOut     : Int
   }
 
   type ConfigAll = Config
@@ -149,6 +155,8 @@ object Main {
     object p extends ScallopConf(args) {
       printedName = "Tagfalter - Main"
       private val default = ConfigImpl()
+
+      import SpaceTimbre.ReadCurve
 
       // --- Main ---
       val verbose: Opt[Boolean] = toggle(default = Some(default.verbose),
@@ -226,6 +234,12 @@ object Main {
       val dirAudio: Opt[File] = opt(default = Some(default.dirAudio),
         descr = s"Audio file directory (default: ${default.dirAudio})"
       )
+      val encAmpComm: Opt[Float] = opt(default = Some(default.encAmpComm),
+        descr = s"Bit encoding amplitude (individual communication), decibels (default: ${default.encAmpComm}).",
+      )
+      val rebootTimeOut: Opt[Int] = opt(default = Some(default.rebootTimeOut),
+        descr = s"Idle reboot time-out in seconds (default: ${default.rebootTimeOut}).",
+      )
 
       // --- Silence ---
       val silenceAmp: Opt[Float] = opt(default = Some(default.silenceAmp),
@@ -272,7 +286,7 @@ object Main {
         descr = s"Bit encoding period in milliseconds (default: ${default.bitPeriod}).",
       )
       val encAmp: Opt[Float] = opt(default = Some(default.encAmp),
-        descr = s"Bit encoding amplitude, decibels (default: ${default.encAmp}).",
+        descr = s"Bit encoding amplitude (global), decibels (default: ${default.encAmp}).",
       )
       val decAmp2: Opt[Float] = opt(default = Some(default.decAmp2),
         descr = s"Bit decoding amplitude for second frequency, decibels (default: ${default.decAmp2}).",
@@ -312,6 +326,9 @@ object Main {
       val spaceAmp: Opt[Float] = opt(default = Some(default.spaceAmp),
         descr = s"Space-timbre amplitude, in decibels (default: ${default.spaceAmp}).",
       )
+      val spaceCurve: Opt[Curve] = opt(default = Some(default.spaceCurve),
+        descr = s"Space-timbre frequency distribution curve; lin, exp, sine, welch, 2.0 etc. (default: ${default.spaceCurve}).",
+      )
 
       // --- Accelerate ---
       val accelMicAmp: Opt[Float] = opt(default = Some(default.accelMicAmp),
@@ -350,6 +367,8 @@ object Main {
         commMaxFreq       = commMaxFreq(),
         joyProb           = joyProb(),
         dirAudio          = dirAudio().getAbsoluteFile,
+        encAmpComm        = encAmpComm(),
+        rebootTimeOut     = rebootTimeOut(),
         // --- Silence ---
         silenceAmp        = silenceAmp(),
         silenceFreq       = silenceFreq(),
@@ -380,6 +399,7 @@ object Main {
         spaceMinFreq      = spaceMinFreq(),
         spaceMaxFreq      = spaceMaxFreq(),
         spaceAmp          = spaceAmp(),
+        spaceCurve        = spaceCurve(),
         // --- Accelerate ---
         accelMicAmp       = accelMicAmp(),
         accelSigAmp       = accelSigAmp(),

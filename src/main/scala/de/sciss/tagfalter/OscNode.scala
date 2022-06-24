@@ -18,6 +18,8 @@ import de.sciss.synth.Ops.ServerOps
 import de.sciss.synth.Server
 import org.rogach.scallop.{ScallopConf, ScallopOption => Opt}
 
+import java.io.File
+
 object OscNode {
   final val DEFAULT_PORT = 57120
 
@@ -79,6 +81,26 @@ object OscNode {
 
           } catch {
             case _: Exception =>
+          }
+
+        case osc.Message("/rec", amp: Float, dur: Float, path: String) =>
+          Machine.instance.fold[Unit] {
+            println("Machine not started yet!")
+          } { machine =>
+            import machine.universe
+            implicit val recCfg: MicRec.Config = MicRec.ConfigImpl(amp = amp, dur = dur, file = new File(path))
+            println("Mic rec start.")
+            universe.cursor.step { implicit tx =>
+              universe.auralSystem.serverOption.fold[Unit] {
+                println("No server found")
+              } { s =>
+                MicRec.apply(s) { implicit tx =>
+                  tx.afterCommit {
+                    println("Mic rec done.")
+                  }
+                }
+              }
+            }
           }
 
         case osc.Message("/quit") =>

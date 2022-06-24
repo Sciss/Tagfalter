@@ -1,6 +1,6 @@
 val addrL = {
-  val addr = java.net.InetAddress.getByName("klangpi01.local")
-  addr.getHostAddress
+  // val addr = java.net.InetAddress.getByName("klangpi01.local")
+  // addr.getHostAddress
   java.net.InetAddress.getByName(s"${java.net.InetAddress.getLocalHost.getHostName}.local")
 }
 
@@ -18,3 +18,7 @@ t.send(osc.Message("/henlo to 3"), a3)
 t.send(osc.Message("/quit"), a1)
 t.send(osc.Message("/quit"), a2)
 t.send(osc.Message("/quit"), a3)
+
+t.send(osc.Message("/rec", 1.0f, 10f, "/home/pi/Documents/projects/Klangnetze_OLD/audio_work/_killme.aif"), a1)
+t.send(osc.Message("/state", 1), a1)
+
