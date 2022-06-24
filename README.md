@@ -42,3 +42,6 @@ cd ~/src/klangnetze/src/
 ```
 
 Followed by `Ctrl-A`, `D` to close the screen terminal. To return to the screen terminal: `screen -r`.
+
+In screen, to scroll back the console output, enter 'Copy mode' via `Ctrl-A`, `Esc`. Then page up/down should
+work. To return press `Esc` again.
