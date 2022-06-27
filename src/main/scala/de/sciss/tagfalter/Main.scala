@@ -55,10 +55,10 @@ object Main {
                          commMaxFreq    : Float   = 18000f,
                          joyProb        : Float   = 0.1f,
                          dirAudio       : File    = new File("audio_work"),
-                         encAmpComm     : Float   = -23f, // -20f,
+                         encAmpComm     : Float   = -20f, // -23f, // -20f,
                          rebootTimeOut  : Int     = 600,  // 10 minutes
                          // --- Silence ---
-                         silenceAmp     : Float   = -24f, // -30f,
+                         silenceAmp     : Float   = -21f, // -24f, // -30f,
                          silenceFreq    : Float   = 34f,
                          // --- OscNode ---
                          dumpOsc        : Boolean = false,
@@ -69,17 +69,18 @@ object Main {
                          spaceCorrection: Float   = -26f, // cm
                          minSpacePos    : Int     =  6,
                          maxSpacePos    : Int     = 24,
+                         sweepAmp       : Float   = -12f, // -14f
                          // --- Crypsis ---
                          debugRec       : Boolean =  false,
                          crypMicAmp     : Float   = 40.0f, // 4.0f,
-                         crypSpeakerAmp : Float   = 15.0f, // 12.0f,
+                         crypSpeakerAmp : Float   = 18.0f, // 15.0f, // 12.0f,
                          cmpThreshIn    : Float   =  10f,
                          cmpThreshOut   : Float   =  15f,
                          crypAchilles   : Float   =  0.98f,
                          crypModFreq    : Float   =  0.15f, // 0.25f, // 0.5f, // 5.6f,
                          // --- Biphase ---
                          bitPeriod      : Float   = 120.0f,
-                         encAmp         : Float   = -24f, // -20f,
+                         encAmp         : Float   = -21f, // -24f, // -20f,
                          decAmp2        : Float   = -10f, // 0.5f,
                          decMicAmp      : Float   = 30f, // 4.0f,
                          wlanIf         : String  = "wlan0",
@@ -92,7 +93,7 @@ object Main {
                          spaceMaxCm     : Float   = 12000.0f, // 2000.0
                          spaceMinFreq   : Float   =   200.0f, // 150.0f,
                          spaceMaxFreq   : Float   = 24000f, // 18000.0f,
-                         spaceAmp       : Float   = -10.0f, // decibels
+                         spaceAmp       : Float   = -9f, // -7f, // -10.0f, // decibels
                          spaceCurve: Curve = Curve.squared,
                          // --- Accelerate ---
                          accelMicAmp    : Float   = 10.0f,
@@ -310,6 +311,11 @@ object Main {
         descr = s"Codec frequency 2b, linear (default: ${default.biphaseF2b}).",
       )
 
+      // --- DetectSpace ---
+      val sweepAmp: Opt[Float] = opt(default = Some(default.sweepAmp),
+        descr = s"Sweep amplitude, in decibels (default: ${default.sweepAmp}).",
+      )
+
       // --- SpaceTimbre ---
       val spaceMinCm: Opt[Float] = opt(default = Some(default.spaceMinCm),
         descr = s"Minimum assumed spatial position in cm (default: ${default.spaceMinCm}).",
@@ -393,6 +399,8 @@ object Main {
         biphaseF1b        = biphaseF1b(),
         biphaseF2a        = biphaseF2a(),
         biphaseF2b        = biphaseF2b(),
+        // --- DetectSpace ---
+        sweepAmp          = sweepAmp(),
         // --- SpaceTimbre ---
         spaceMinCm        = spaceMinCm(),
         spaceMaxCm        = spaceMaxCm(),

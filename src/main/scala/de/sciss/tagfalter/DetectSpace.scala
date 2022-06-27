@@ -18,7 +18,7 @@ import de.sciss.file.userHome
 import de.sciss.log.Level
 import de.sciss.lucre.Txn.{peer => peerTx}
 import de.sciss.lucre.synth.{Server, Synth}
-import de.sciss.lucre.{Artifact, ArtifactLocation, DoubleVector}
+import de.sciss.lucre.{Artifact, ArtifactLocation, DoubleObj, DoubleVector}
 import de.sciss.numbers.Implicits._
 import de.sciss.proc.{AudioCue, Proc, Runner, TimeRef, Universe}
 import de.sciss.synth.SynthGraph
@@ -52,6 +52,7 @@ object DetectSpace {
                      minSpacePos    : Int     =  6,
                      maxSpacePos    : Int     = 24,
                      dirAudio       : File    = new File("audio_work"),
+                     sweepAmp       : Float   = -12f, // -14f
                    ) extends Config
 
   trait Config {
@@ -62,6 +63,8 @@ object DetectSpace {
     def minSpacePos     : Int
     def maxSpacePos     : Int
     def dirAudio        : File
+    /** Decibels */
+    def sweepAmp        : Float
   }
 
   case class Result(posCm: Vec[Float])
@@ -99,6 +102,9 @@ object DetectSpace {
       val dirAudio: Opt[File] = opt(default = Some(default.dirAudio),
         descr = s"Audio file directory (default: ${default.dirAudio})"
       )
+      val sweepAmp: Opt[Float] = opt(default = Some(default.sweepAmp),
+        descr = s"Sweep amplitude, in decibels (default: ${default.sweepAmp}).",
+      )
 
       verify()
       implicit val config: Config = ConfigImpl(
@@ -109,6 +115,7 @@ object DetectSpace {
         minSpacePos     = minSpacePos(),
         maxSpacePos     = maxSpacePos(),
         dirAudio        = dirAudio().getAbsoluteFile,
+        sweepAmp        = sweepAmp(),
       )
     }
     import p.config
@@ -339,11 +346,12 @@ object DetectSpace {
     p.graph() = SynthGraph {
       import de.sciss.synth.Import._
       import de.sciss.synth.proc.graph._
+      import de.sciss.synth.proc.graph.Ops.stringToControl
       import de.sciss.synth.ugen.{DiskIn => _, PartConv => _, _}
 //      val sweep     = DiskIn.ar("in")
       val sweepBuf  = Buffer("in")
       val sweep     = PlayBuf.ar(1, sweepBuf, loop = 0)
-      val gainSpkr  = 0.2f // "gain-in" .kr(0.2)
+      val gainSpkr  = "sweep-amp".kr(0.2f) // "gain-in" .kr(0.2)
       val gainMic   = 1.0f // 4.0 // "gain-out".kr(4.0)
       val outChan   = 0 // "out-ch"    .kr(0)
       val sigOut    = sweep * gainSpkr
@@ -370,6 +378,7 @@ object DetectSpace {
     val pAttr = p.attr
     pAttr.put("in", cueFwd)
     pAttr.put("sweep-rvs", cueBwd)
+    pAttr.put("sweep-amp", DoubleObj.newConst[T](config.sweepAmp.dbAmp))
     pAttr.put("out", vrSweep)
     val r = Runner(p)
 

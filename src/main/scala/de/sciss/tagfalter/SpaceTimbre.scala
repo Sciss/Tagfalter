@@ -129,6 +129,14 @@ object SpaceTimbre {
     def release()(implicit tx: T): Unit
   }
 
+  def aWeight(f: Double): Double = {
+    val f2 = f .squared
+    val f4 = f2.squared
+    val nom = 12194.0.squared * f4
+    val den = (f2 + 20.6.squared) * ((f2 + 107.7.squared) * (f2 + 737.9.squared)).sqrt * (f2 + 12194.squared)
+    nom / den
+  }
+
   def run()(implicit config: ConfigImpl): Unit = {
     if (config.debug) log.level = Level.Debug
     Main.boot { implicit tx => implicit universe => _ /*s*/ =>
@@ -169,11 +177,12 @@ object SpaceTimbre {
       import de.sciss.synth.proc.graph.Ops.stringToControl
       import de.sciss.synth.ugen.{DiskIn => _, PartConv => _, _}
       val freqSeq = "freq-seq".kr(150.0) // Seq(1.0, 2.0))
+      val ampSeq  = "amp-seq" .kr(1.0)
       //space.poll(0, "space")
 
-      // XXX TODO: is this good, referring to the number of channels of `vec`?
       val oscAmpSeq = Vec.tabulate(spacePosCm.size) { i =>
-        LFNoise1.kr(i.linLin(0, spacePosCm.size - 1, 0.11, 0.23)).abs
+        val n = LFNoise1.kr(i.linLin(0, spacePosCm.size - 1, 0.11, 0.23)).abs
+        n * ampSeq.out(i)
       }
       val oscSeq    = SinOsc.ar(freqSeq) * oscAmpSeq
       val oscSum    = Mix.Mono(oscSeq) / NumChannels(oscSeq)
@@ -213,10 +222,14 @@ object SpaceTimbre {
         if (f1 >= fBlockLo && f1 <= fBlockHi) fBlockHi else f1
       }
     }
+    val ampSeq = freqSeq.map { f =>
+      aWeight(f).max(0.5).reciprocal
+    }
 
     val vrGate = BooleanObj.newVar[T](true)
 
     pAttr.put("freq-seq", DoubleVector.newConst[T](freqSeq))
+    pAttr.put("amp-seq" , DoubleVector.newConst[T](ampSeq ))
     pAttr.put("amp", DoubleObj.newConst[T](amp /*config.spaceAmp.dbAmp*/))
     pAttr.put("gate", vrGate)
     val r = Runner(p)
