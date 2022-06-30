@@ -42,6 +42,7 @@ object Crypsis {
     def debug           : Boolean
     def debugRec        : Boolean
     def crypMicAmp      : Float
+    /** In decibels */
     def crypSpeakerAmp  : Float
     def cmpThreshIn     : Float
     def cmpThreshOut    : Float

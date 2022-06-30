@@ -185,7 +185,7 @@ object SpaceTimbre {
         n * ampSeq.out(i)
       }
       val oscSeq    = SinOsc.ar(freqSeq) * oscAmpSeq
-      val oscSum    = Mix.Mono(oscSeq) / NumChannels(oscSeq)
+      val oscSum    = Mix.Mono(oscSeq) / NumChannels(oscSeq).sqrt
       val amp       = "amp".kr(0.1)
       val gate      = "gate".kr(1)
       val env       = EnvGen.kr(Env.asr(attack = 5f, level = amp, release = 10f), gate = gate)

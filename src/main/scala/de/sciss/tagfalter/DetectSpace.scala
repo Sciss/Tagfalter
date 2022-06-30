@@ -14,10 +14,8 @@
 package de.sciss.tagfalter
 
 import de.sciss.audiofile.{AudioFile, AudioFileSpec}
-import de.sciss.file.userHome
 import de.sciss.log.Level
 import de.sciss.lucre.Txn.{peer => peerTx}
-import de.sciss.lucre.synth.{Server, Synth}
 import de.sciss.lucre.{Artifact, ArtifactLocation, DoubleObj, DoubleVector}
 import de.sciss.numbers.Implicits._
 import de.sciss.proc.{AudioCue, Proc, Runner, TimeRef, Universe}
@@ -52,8 +50,11 @@ object DetectSpace {
                      minSpacePos    : Int     =  6,
                      maxSpacePos    : Int     = 24,
                      dirAudio       : File    = new File("audio_work"),
-                     sweepAmp       : Float   = -12f, // -14f
-                   ) extends Config
+                     sweepAmp       : Float   = -14f, // -12f, // -14f
+                     numPosThresh   : Int     = 3,
+                     jackBlockSize  : Int     = 1024,
+                     jackNumBlocks  : Int     = 3,
+                       ) extends Config
 
   trait Config {
     def debug           : Boolean
@@ -65,6 +66,9 @@ object DetectSpace {
     def dirAudio        : File
     /** Decibels */
     def sweepAmp        : Float
+    def numPosThresh    : Int
+    def jackBlockSize   : Int
+    def jackNumBlocks   : Int
   }
 
   case class Result(posCm: Vec[Float])
@@ -105,6 +109,18 @@ object DetectSpace {
       val sweepAmp: Opt[Float] = opt(default = Some(default.sweepAmp),
         descr = s"Sweep amplitude, in decibels (default: ${default.sweepAmp}).",
       )
+      val numPosThresh: Opt[Int] = opt(default = Some(default.numPosThresh),
+        descr = s"Number of threshold attempts when unifying positions (default: ${default.numPosThresh}).",
+        validate = _ > 0
+      )
+      val jackBlockSize: Opt[Int] = opt(default = Some(default.jackBlockSize),
+        descr = s"Jack Audio Server block size (default: ${default.jackBlockSize}).",
+        validate = _ > 0
+      )
+      val jackNumBlocks: Opt[Int] = opt(default = Some(default.jackNumBlocks),
+        descr = s"Jack Audio Server number of blocks (default: ${default.jackNumBlocks}).",
+        validate = _ > 0
+      )
 
       verify()
       implicit val config: Config = ConfigImpl(
@@ -116,6 +132,9 @@ object DetectSpace {
         maxSpacePos     = maxSpacePos(),
         dirAudio        = dirAudio().getAbsoluteFile,
         sweepAmp        = sweepAmp(),
+        numPosThresh    = numPosThresh(),
+        jackBlockSize   = jackBlockSize(),
+        jackNumBlocks   = jackNumBlocks(),
       )
     }
     import p.config
@@ -340,13 +359,15 @@ object DetectSpace {
     val RunIdx        = Ref(1) // (0)
     val ThreshExcess  = Ref(threshExcessDefault)
 
-    val posBufSq      = Array.ofDim[Int](NumIRRuns, bufLenIRPos)
-    val numPosSq      = Array.ofDim[Int](NumIRRuns)
+//    val posBufSq      = Array.ofDim[Int](NumIRRuns, bufLenIRPos)
+    val posBufSqSq    = Array.ofDim[Int](NumIRRuns, config.numPosThresh, bufLenIRPos)
+//    val numPosSq      = Array.ofDim[Int](NumIRRuns)
+    val numPosSqSq    = Array.ofDim[Int](NumIRRuns, config.numPosThresh)
 
     p.graph() = SynthGraph {
       import de.sciss.synth.Import._
-      import de.sciss.synth.proc.graph._
       import de.sciss.synth.proc.graph.Ops.stringToControl
+      import de.sciss.synth.proc.graph._
       import de.sciss.synth.ugen.{DiskIn => _, PartConv => _, _}
 //      val sweep     = DiskIn.ar("in")
       val sweepBuf  = Buffer("in")
@@ -363,10 +384,8 @@ object DetectSpace {
       val deConv   = PartConv.ar("sweep-rvs", sigIn, fftSize = fftSize)
       val buf       = Buffer.Empty(framesIRRec)
       val PRE_DELAY  = (2 /*3 */ * SR).toInt
-      val JACK_BLOCK_SIZE = 1024
-      val JACK_NUM_BLOCKS = 3
-      val CONV_DELAY    = JACK_BLOCK_SIZE * JACK_NUM_BLOCKS + fftSize + config.unknownLatency
-      val recRun        = ToggleFF.kr(TDelay.kr(Impulse.kr(0), (PRE_DELAY + CONV_DELAY).toFloat / SR))
+      val convDelay     = config.jackBlockSize * config.jackNumBlocks + fftSize + config.unknownLatency
+      val recRun        = ToggleFF.kr(TDelay.kr(Impulse.kr(0), (PRE_DELAY + convDelay).toFloat / SR))
       val r             = RecordBuf.ar(deConv /*sigIn*/, buf, loop = 0, run = recRun)
       val recDone       = Done.kr(r)
       //StopSelf(Done.kr(elapsed))
@@ -399,13 +418,14 @@ object DetectSpace {
 
           normalize(sweep)
           prepareIR(sweep)
-          val posBuf = posBufSq(runIdx - 1) // new Array[Int](bufLenIRPos)
-          val numPos: Int = {
+//          val posBuf = posBufSq(runIdx - 1) // new Array[Int](bufLenIRPos)
+          val posBuf0 = posBufSqSq(runIdx - 1)(0) // new Array[Int](bufLenIRPos)
+          val numPos0: Int = {
 
             @tailrec
             def tryDetect(attemptsLeft: Int): Int = {
               val t = ThreshExcess()
-              val n = detectLocalMax(sweep, posBuf, threshExcess = t)
+              val n = detectLocalMax(sweep, posBuf0, threshExcess = t)
               if (attemptsLeft == 0) n else {
                 // move up and down in 3 dB steps
                 if (n < config.minSpacePos && t > threshExcessMin) {
@@ -426,15 +446,26 @@ object DetectSpace {
 
             tryDetect(attemptsLeft = if (runIdx == 1) 3 else 1)
           }
-          numPosSq(runIdx - 1) = numPos
+//          numPosSq(runIdx - 1) = numPos
+          numPosSqSq(runIdx - 1)(0) = numPos0
 
           if (log.level <= Level.Debug) {
-            val posBufT = posBuf.take(numPos)
+            val posBufT = posBuf0.take(numPos0)
             val cm      = posBufT.map(x => x.toFloat * frameToCM + config.spaceCorrection)
             val cmS     = cm.map(x => "%1.1f".format(x))
 
             log.debug(posBufT .mkString("Pos (smp): ", ", ", ""))
             log.debug(cmS     .mkString("Pos (cm ): ", ", ", ""))
+          }
+
+          var iLow = 1
+          var tLow = ThreshExcess()
+          while (iLow < config.numPosThresh) {
+            tLow *= 0.71f
+            val posBufLow = posBufSqSq(runIdx - 1)(iLow)
+            val nLow = detectLocalMax(sweep, posBufLow, threshExcess = tLow)
+            numPosSqSq(runIdx - 1)(iLow) = nLow
+            iLow += 1
           }
 
           if (config.debug) {
@@ -448,25 +479,52 @@ object DetectSpace {
         if (RunIdx.transformAndGet(_ + 1) <= NumIRRuns) {
           nextRun()
         } else {
+
           // now unify the measurements
-          val cmAccAll: Array[Float] = posBufSq.iterator.zip(numPosSq).flatMap { case (posBuf, numPos) =>
-            posBuf.iterator.take(numPos).map { x =>
-              Math.max(0f, x * frameToCM + config.spaceCorrection)
-            } .toArray[Float]
-          } .toArray
-          // val toleranceSmp  = toleranceIRPosCM / frameToCM
-          val cmGroups = cmAccAll.sorted.foldLeft[Vec[Vec[Float]]](Vec.empty) {
-            case (aggr, x) =>
-              val last  = aggr.lastOption.getOrElse(Vec.empty)
-              val merge = last.forall { y => (y absDif x) < toleranceIRPosCM }
-              if (merge) {
-                val init = aggr.dropRight(1) // init
-                init :+ (last :+ x)
-              } else {
-                aggr :+ Vec(x)
-              }
+          def unify(i: Int): Vec[Vec[Float]] = {
+            val cmAccAll: Array[Float] = posBufSqSq.iterator.zip(numPosSqSq).flatMap { case (posBufSq, numPosSq) =>
+              val posBuf = posBufSq(i)
+              val numPos = numPosSq(i)
+              posBuf.iterator.take(numPos).map { x =>
+                Math.max(0f, x * frameToCM + config.spaceCorrection)
+              } .toArray[Float]
+            } .toArray
+            // val toleranceSmp  = toleranceIRPosCM / frameToCM
+            val cmGroups = cmAccAll.sorted.foldLeft[Vec[Vec[Float]]](Vec.empty) {
+              case (aggr, x) =>
+                val last  = aggr.lastOption.getOrElse(Vec.empty)
+                val merge = last.forall { y => (y absDif x) < toleranceIRPosCM }
+                if (merge) {
+                  val init = aggr.dropRight(1) // init
+                  init :+ (last :+ x)
+                } else {
+                  aggr :+ Vec(x)
+                }
+            }
+            val _posFound: Vec[Vec[Float]] = cmGroups.filter(_.size >= minIRPosRepeat)
+            _posFound
           }
-          val posFound  = cmGroups.filter(_.size >= minIRPosRepeat)
+
+          var posFoundP = unify(0)
+          var posFoundN = posFoundP
+          var iLow      = 1
+          while (posFoundN.size < config.minSpacePos && iLow < config.numPosThresh) {
+            posFoundP = posFoundN
+            posFoundN = unify(iLow)
+            iLow += 1
+          }
+          val posFound = if (posFoundP.size >= config.minSpacePos && posFoundP.size <= config.maxSpacePos) {
+            iLow -= 1
+            posFoundP
+          } else if (posFoundN.size >= config.minSpacePos && posFoundN.size <= config.maxSpacePos) {
+            posFoundN
+          } else if (config.minSpacePos.toFloat / math.max(1, posFoundP.size) < posFoundN.size.toFloat / config.maxSpacePos) {
+            iLow -= 1
+            posFoundP
+          } else {
+            posFoundN
+          }
+
           val cmMean0: Vec[Float] = posFound.map(xs => xs.sum / xs.size) // .mean
           // make sure we have at least two values
           val cmMean: Vec[Float] = cmMean0 match {
@@ -475,7 +533,7 @@ object DetectSpace {
             case _            => cmMean0
           }
 
-          log.info(s"Found ${cmMean0.size} stable positions (cm):")
+          log.info(s"Found ${cmMean0.size} stable positions in thresh $iLow (cm):")
           log.info(cmMean0.map(x => "%1.1f".format(x)).mkString(", "))
 
 //          sys.exit()

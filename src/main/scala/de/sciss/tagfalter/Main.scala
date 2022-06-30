@@ -70,10 +70,13 @@ object Main {
                          minSpacePos    : Int     =  6,
                          maxSpacePos    : Int     = 24,
                          sweepAmp       : Float   = -12f, // -14f
+                         numPosThresh   : Int     = 3,
+                         jackBlockSize  : Int     = 2048, // 1024,
+                         jackNumBlocks  : Int     = 3,
                          // --- Crypsis ---
                          debugRec       : Boolean =  false,
                          crypMicAmp     : Float   = 40.0f, // 4.0f,
-                         crypSpeakerAmp : Float   = 18.0f, // 15.0f, // 12.0f,
+                         crypSpeakerAmp : Float   = 21.0f, // 18.0f, // 15.0f, // 12.0f,
                          cmpThreshIn    : Float   =  10f,
                          cmpThreshOut   : Float   =  15f,
                          crypAchilles   : Float   =  0.98f,
@@ -315,6 +318,18 @@ object Main {
       val sweepAmp: Opt[Float] = opt(default = Some(default.sweepAmp),
         descr = s"Sweep amplitude, in decibels (default: ${default.sweepAmp}).",
       )
+      val numPosThresh: Opt[Int] = opt(default = Some(default.numPosThresh),
+        descr = s"Number of threshold attempts when unifying positions (default: ${default.numPosThresh}).",
+        validate = _ > 0
+      )
+      val jackBlockSize: Opt[Int] = opt(default = Some(default.jackBlockSize),
+        descr = s"Jack Audio Server block size (default: ${default.jackBlockSize}).",
+        validate = _ > 0
+      )
+      val jackNumBlocks: Opt[Int] = opt(default = Some(default.jackNumBlocks),
+        descr = s"Jack Audio Server number of blocks (default: ${default.jackNumBlocks}).",
+        validate = _ > 0
+      )
 
       // --- SpaceTimbre ---
       val spaceMinCm: Opt[Float] = opt(default = Some(default.spaceMinCm),
@@ -401,6 +416,9 @@ object Main {
         biphaseF2b        = biphaseF2b(),
         // --- DetectSpace ---
         sweepAmp          = sweepAmp(),
+        numPosThresh      = numPosThresh(),
+        jackBlockSize     = jackBlockSize(),
+        jackNumBlocks     = jackNumBlocks(),
         // --- SpaceTimbre ---
         spaceMinCm        = spaceMinCm(),
         spaceMaxCm        = spaceMaxCm(),
