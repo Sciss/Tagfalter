@@ -38,7 +38,7 @@ object DetectSpace {
   private final val bufLenIRPos         = framesIRRec / rangeLocalMax
   private final val speedOfSound        = 343.0f  // m/s
   private final val toleranceIRPosCM    = 10f // cm
-  private final val frameToCM           = 1.0f / SR * (speedOfSound * 100)
+  private final val cmPerFrame          = 1.0f / SR * (speedOfSound * 100)
   private final val NumIRRuns           = 4
   private final val minIRPosRepeat      = (NumIRRuns * 2.0f/3 + 0.5).toInt
 
@@ -54,6 +54,7 @@ object DetectSpace {
                      numPosThresh   : Int     = 3,
                      jackBlockSize  : Int     = 1024,
                      jackNumBlocks  : Int     = 3,
+                     spaceMaxCm     : Float   = 12000.0f,
                        ) extends Config
 
   trait Config {
@@ -69,6 +70,7 @@ object DetectSpace {
     def numPosThresh    : Int
     def jackBlockSize   : Int
     def jackNumBlocks   : Int
+    def spaceMaxCm      : Float
   }
 
   case class Result(posCm: Vec[Float])
@@ -142,14 +144,14 @@ object DetectSpace {
   }
 
   def run()(implicit config: Config): Unit = {
-    Main.boot { implicit tx => implicit universe => s =>
+    Main.boot { implicit tx => implicit universe => _ /*s*/ =>
       runBooted()
     }
   }
 
   def runBooted(/*s: Server*/)(implicit tx: T, universe: Universe[T], config: Config): Unit = {
-    val s = universe.auralContext.get.server
-
+//    val s = universe.auralContext.get.server
+//
 //    if (config.noise) {
 //      // Note: this problem has been reduced to the use of DiskIn over Buffer/PlayBuf
 //      // (SoundProcesses issue #117)
@@ -230,8 +232,8 @@ object DetectSpace {
   }
 
   // `out` should have a size of at least `maxIRPos`
-  private def detectLocalMax(in: Array[Double], out: Array[Int], threshExcess: Double): Int = {
-    val len = in.length
+  private def detectLocalMax(in: Array[Double], maxLen: Int, out: Array[Int], threshExcess: Double): Int = {
+    val len = math.min(maxLen, in.length)
 
     var readMode      = true
     var complete      = false
@@ -363,6 +365,8 @@ object DetectSpace {
     val posBufSqSq    = Array.ofDim[Int](NumIRRuns, config.numPosThresh, bufLenIRPos)
 //    val numPosSq      = Array.ofDim[Int](NumIRRuns)
     val numPosSqSq    = Array.ofDim[Int](NumIRRuns, config.numPosThresh)
+    val maxLen        = math.ceil(config.spaceMaxCm / cmPerFrame).toInt
+    // println(s"maxLen $maxLen")
 
     p.graph() = SynthGraph {
       import de.sciss.synth.Import._
@@ -383,7 +387,7 @@ object DetectSpace {
       val fftSize  = 2048
       val deConv   = PartConv.ar("sweep-rvs", sigIn, fftSize = fftSize)
       val buf       = Buffer.Empty(framesIRRec)
-      val PRE_DELAY  = (2 /*3 */ * SR).toInt
+      val PRE_DELAY: Int  = 2 /*3 */ * SR // .toInt
       val convDelay     = config.jackBlockSize * config.jackNumBlocks + fftSize + config.unknownLatency
       val recRun        = ToggleFF.kr(TDelay.kr(Impulse.kr(0), (PRE_DELAY + convDelay).toFloat / SR))
       val r             = RecordBuf.ar(deConv /*sigIn*/, buf, loop = 0, run = recRun)
@@ -425,7 +429,7 @@ object DetectSpace {
             @tailrec
             def tryDetect(attemptsLeft: Int): Int = {
               val t = ThreshExcess()
-              val n = detectLocalMax(sweep, posBuf0, threshExcess = t)
+              val n = detectLocalMax(in = sweep, maxLen = maxLen, out = posBuf0, threshExcess = t)
               if (attemptsLeft == 0) n else {
                 // move up and down in 3 dB steps
                 if (n < config.minSpacePos && t > threshExcessMin) {
@@ -451,7 +455,7 @@ object DetectSpace {
 
           if (log.level <= Level.Debug) {
             val posBufT = posBuf0.take(numPos0)
-            val cm      = posBufT.map(x => x.toFloat * frameToCM + config.spaceCorrection)
+            val cm      = posBufT.map(x => x.toFloat * cmPerFrame + config.spaceCorrection)
             val cmS     = cm.map(x => "%1.1f".format(x))
 
             log.debug(posBufT .mkString("Pos (smp): ", ", ", ""))
@@ -463,7 +467,7 @@ object DetectSpace {
           while (iLow < config.numPosThresh) {
             tLow *= 0.71f
             val posBufLow = posBufSqSq(runIdx - 1)(iLow)
-            val nLow = detectLocalMax(sweep, posBufLow, threshExcess = tLow)
+            val nLow = detectLocalMax(in = sweep, maxLen = maxLen, out = posBufLow, threshExcess = tLow)
             numPosSqSq(runIdx - 1)(iLow) = nLow
             iLow += 1
           }
@@ -486,7 +490,7 @@ object DetectSpace {
               val posBuf = posBufSq(i)
               val numPos = numPosSq(i)
               posBuf.iterator.take(numPos).map { x =>
-                Math.max(0f, x * frameToCM + config.spaceCorrection)
+                Math.max(0f, x * cmPerFrame + config.spaceCorrection)
               } .toArray[Float]
             } .toArray
             // val toleranceSmp  = toleranceIRPosCM / frameToCM
