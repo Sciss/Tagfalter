@@ -109,7 +109,10 @@ object Main {
     with Biphase      .Config
     with SpaceTimbre  .Config
     with Accelerate   .Config
-    with Silence      .Config
+    with Silence      .Config {
+
+    val isEisenerz: Boolean = nodeId >= 16 && nodeId <= 20
+  }
 
   trait Config {
     def initCrypMinDur    : Float
@@ -140,6 +143,8 @@ object Main {
     /** Decibels */
     def encAmpComm        : Float
     def rebootTimeOut     : Int
+
+    def isEisenerz: Boolean
   }
 
   type ConfigAll = Config

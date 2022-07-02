@@ -81,6 +81,7 @@ object Accelerate {
   trait Config {
     def debug         : Boolean
     def accelMicAmp   : Float
+    /** Linear */
     def accelSigAmp   : Float
     def accelCmpThresh: Float
   }
@@ -116,7 +117,7 @@ object Accelerate {
       accelFactor = config.accelFactor,
       accelBufDur = config.accelBufDur
     )
-    play(rc)
+    play(rc, amp = config.accelSigAmp)
   }
 
   trait RecResult {
@@ -133,7 +134,7 @@ object Accelerate {
     def release()(implicit tx: T): Unit
   }
 
-  def play(rc: RecResult)(implicit tx: T, universe: Universe[T], config: Config): PlayResult = {
+  def play(rc: RecResult, amp: Float)(implicit tx: T, universe: Universe[T], config: Config): PlayResult = {
     val g = SynthGraph {
       import de.sciss.synth.Import._
       import de.sciss.synth.proc.graph.Ops.stringToControl
@@ -165,7 +166,7 @@ object Accelerate {
     val vrGate = BooleanObj.newVar[T](true)
     p.graph()     = g
     val pAttr     = p.attr
-    pAttr.put("amp"     , DoubleObj.newConst[T](config.accelSigAmp))
+    pAttr.put("amp"     , DoubleObj.newConst[T](amp /*config.accelSigAmp*/))
     pAttr.put("buf"     , IntObj.newConst[T](rc.buffer.id))  // XXX TODO: yeah, well, we need a proc.Buffer object
     pAttr.put("cmp-thresh-out", DoubleObj.newConst[T]((-config.accelCmpThresh).dbAmp))
     pAttr.put("gate"    , vrGate)

@@ -29,7 +29,8 @@ class SpaceTimbreStage extends Stage.Running {
   override def start()(implicit tx: T, machine: Machine): Unit = {
     import machine.{config, random, universe}
     // println(s"FROM ${config.spaceAmp} TO ${config.spaceAmp - config.spaceAmpMaxDamp}")
-    val ampDb     = random.nextFloat().linLin(0f, 1f, config.spaceAmp, config.spaceAmp - config.spaceAmpMaxDamp)
+    val spaceAmp0 = if (!config.isEisenerz) config.spaceAmp else config.spaceAmp - 3
+    val ampDb     = random.nextFloat().linLin(0f, 1f, spaceAmp0, spaceAmp0 - config.spaceAmpMaxDamp)
     log.debug(f"space-timbre amp is $ampDb%1.1f dB")
     val amp       = ampDb.dbAmp
     val skipFreq  = machine.allCommFreq /*.flatMap(tup => tup._1 ::  tup._2 :: Nil)*/.sorted
