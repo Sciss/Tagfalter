@@ -35,7 +35,9 @@ class CrypsisStage extends Stage.Running {
       sz.linLin(config.minSpacePos.toFloat, config.maxSpacePos.toFloat, config.crypModMinFreq, config.crypModMaxFreq)
     }
     log.info(f"Crypsis mod-freq is $modFreq%1.2f Hz")
-    val cryp      = Crypsis.applyWith(modFreq = modFreq)
+    val ampDb0    = config.crypSpeakerAmp
+    val ampDb     = if (config.isLoudCard) (ampDb0 - 9) else ampDb0
+    val cryp      = Crypsis.applyWith(ampDb = ampDb, modFreq = modFreq)
     crypRef()     = Some(cryp)
     /*val lCryp: Disposable[T] =*/ cryp.runner.reactNow { implicit tx => state =>
       if (state.idle) {

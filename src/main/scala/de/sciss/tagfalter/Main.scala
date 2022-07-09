@@ -111,7 +111,8 @@ object Main {
     with Accelerate   .Config
     with Silence      .Config {
 
-    val isEisenerz: Boolean = nodeId >= 16 && nodeId <= 20
+    override val isEisenerz: Boolean = nodeId >= 16 && nodeId <= 20
+    override val isLoudCard: Boolean = Seq(11, 12, 13, 15, /*(Ligist)*/ 23 /*(Spielberg)*/).contains(nodeId)
   }
 
   trait Config {
@@ -145,6 +146,7 @@ object Main {
     def rebootTimeOut     : Int
 
     def isEisenerz: Boolean
+    def isLoudCard: Boolean
   }
 
   type ConfigAll = Config

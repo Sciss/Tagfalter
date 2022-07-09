@@ -40,7 +40,10 @@ object Biphase {
                          biphaseF1b : Float    = f1b,
                          biphaseF2a : Float    = f2a,
                          biphaseF2b : Float    = f2b,
-                       ) extends Config
+                       ) extends Config {
+
+    override def isLoudCard: Boolean = false
+  }
 
   trait Config {
     /** Bit encoding period in milliseconds */
@@ -60,6 +63,7 @@ object Biphase {
     def biphaseF2a: Float
     /** The upper insignificant frequency in Hz */
     def biphaseF2b: Float
+    def isLoudCard: Boolean
   }
 
   def main(args: Array[String]): Unit = {
@@ -254,10 +258,11 @@ object Biphase {
 
     val bitBuf = Buffer(s)(numFrames = numBits)
     bitBuf.setn(bits)
+    val ampDbCorr = if (config.isLoudCard) ampDb - 10 else ampDb
     val syn = Synth.play(g, nameHint = Some("bi-enc"))(s,
       args = Seq(
         "bit-buf" -> bitBuf.id,
-        "amp"     -> ampDb /*config.encAmp*/  .dbAmp,
+        "amp"     -> ampDbCorr /*config.encAmp*/  .dbAmp,
         "f1a"     -> freq.f1a,
         "f1b"     -> freq.f1b,
         "f2a"     -> freq.f2a,

@@ -28,9 +28,10 @@ class AccelerateStage extends Stage.Running {
 
   override def start()(implicit tx: T, machine: Machine): Unit = {
     import machine.{config, random, universe}
-    val rc  = machine.accelerateRec.getOrElse(sys.error("No acceleration recorder!"))
-    val amp = if (!config.isEisenerz) config.accelSigAmp else config.accelSigAmp * 0.8f
-    val acc = Accelerate.play(rc, amp = amp)
+    val rc    = machine.accelerateRec.getOrElse(sys.error("No acceleration recorder!"))
+    val amp0  = config.accelSigAmp
+    val amp   = if (config.isEisenerz) amp0 * 0.5f else if (config.isLoudCard) amp0 * 0.32f else amp0
+    val acc   = Accelerate.play(rc, amp = amp)
     accRef() = Some(acc)
     /*val lCryp: Disposable[T] =*/ acc.runner.reactNow { implicit tx => state =>
       if (state.idle) {

@@ -36,7 +36,10 @@ object Crypsis {
                          crypModFreq    : Float   =  0.15f, // 0.5f, // 5.6f,
 //                         crypModDepth   : Float   = 0.7f,
                          dirAudio       : File    = new File("audio_work"),
-                       ) extends Config
+                       ) extends Config {
+
+    override def isLoudCard: Boolean = false
+  }
 
   trait Config {
     def debug           : Boolean
@@ -50,6 +53,7 @@ object Crypsis {
     def crypModFreq     : Float
 //    def crypModDepth    : Float
     def dirAudio        : File
+    def isLoudCard      : Boolean
   }
 
   def main(args: Array[String]): Unit = {
@@ -130,11 +134,11 @@ object Crypsis {
     def release()(implicit tx: T): Unit
   }
 
-  def apply(/*s: Server*/)(implicit tx: T, config: Config, universe: Universe[T]): Result = {
-    applyWith(modFreq = config.crypModFreq)
+  private def apply(/*s: Server*/)(implicit tx: T, config: Config, universe: Universe[T]): Result = {
+    applyWith(ampDb = config.crypSpeakerAmp, modFreq = config.crypModFreq)
   }
 
-  def applyWith(modFreq: Float)(implicit tx: T, config: Config, universe: Universe[T]): Result = {
+  def applyWith(ampDb: Float, modFreq: Float)(implicit tx: T, config: Config, universe: Universe[T]): Result = {
     val p = Proc[T]()
     val dirAudio  = config.dirAudio
     val locAudio  = ArtifactLocation.newConst[T](dirAudio.toURI)
@@ -261,7 +265,7 @@ object Crypsis {
     p.graph() = g
     val pAttr = p.attr
     pAttr.put("noise"         , cueNoise)
-    pAttr.put("amp"           , DoubleObj.newConst[T](config.crypSpeakerAmp .dbAmp))
+    pAttr.put("amp"           , DoubleObj.newConst[T](ampDb.dbAmp))
     pAttr.put("mic-amp"       , DoubleObj.newConst[T](config.crypMicAmp     .dbAmp))
     pAttr.put("cmp-thresh-in" , DoubleObj.newConst[T]((-config.cmpThreshIn ).dbAmp))
     pAttr.put("cmp-thresh-out", DoubleObj.newConst[T]((-config.cmpThreshOut).dbAmp))
